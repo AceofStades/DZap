@@ -2,6 +2,8 @@
 
 DZap is a bootable Linux environment for securely erasing attached storage. It detects storage topology, requires an identity-bound safety preflight, executes device-appropriate ATA, NVMe, or overwrite methods, verifies the result, and issues signed evidence certificates.
 
+Detailed design, safety, API, live-image, testing, history, and roadmap documentation is available in [`docs/`](docs/README.md).
+
 ## Build the bootable image
 
 Builds currently target x86-64 Arch Linux hosts. Install the build tools:
