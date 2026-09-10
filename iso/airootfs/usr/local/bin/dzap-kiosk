@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HOME=/run/dzap
+export XDG_CACHE_HOME="$HOME/cache"
+export XDG_CONFIG_HOME="$HOME/config"
+mkdir -p "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$HOME/chromium"
+
+xset s off
+xset s noblank
+xset -dpms
+openbox --sm-disable &
+
+for _ in $(seq 1 60); do
+    if curl --fail --silent --output /dev/null http://127.0.0.1:8080/; then
+        exec chromium \
+            --kiosk \
+            --no-first-run \
+            --disable-session-crashed-bubble \
+            --disable-translate \
+            --disable-features=Translate \
+            --user-data-dir="$HOME/chromium" \
+            http://127.0.0.1:8080/
+    fi
+    sleep 1
+done
+
+echo "DZap backend did not become ready within 60 seconds" >&2
+exit 1

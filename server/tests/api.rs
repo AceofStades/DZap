@@ -7,19 +7,34 @@
 //!   tests (temp files in /tmp) and by the QEMU end-to-end harness.
 
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, client::IntoClientRequest};
 
 /// Spin up the real router on an ephemeral localhost port.
 async fn spawn_server() -> String {
     let hub = server::realtime::Hub::new();
-    let app = server::build_router(hub);
+    spawn_app(server::build_router(hub)).await
+}
+
+async fn spawn_app(app: axum::Router) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
     format!("http://{addr}")
+}
+
+fn temp_directory(test_name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "dzap-api-{test_name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
 }
 
 #[tokio::test]
@@ -322,4 +337,45 @@ async fn websocket_rejects_untrusted_browser_origin() {
         WebSocketError::Http(response) => assert_eq!(response.status(), 403),
         other => panic!("unexpected WebSocket error: {other}"),
     }
+}
+
+#[tokio::test]
+async fn websocket_accepts_live_usb_ui_origin() {
+    let base = spawn_server().await;
+    let ws_url = format!("{}/ws", base.replacen("http://", "ws://", 1));
+    let mut request = ws_url.into_client_request().unwrap();
+    request
+        .headers_mut()
+        .insert("Origin", "http://127.0.0.1:8080".parse().unwrap());
+
+    let (_socket, response) = tokio_tungstenite::connect_async(request).await.unwrap();
+    assert_eq!(response.status(), 101);
+}
+
+#[tokio::test]
+async fn backend_serves_the_exported_frontend() {
+    let frontend = temp_directory("frontend");
+    std::fs::create_dir_all(frontend.join("_next/static")).unwrap();
+    std::fs::write(
+        frontend.join("index.html"),
+        "<!doctype html><title>DZap USB</title>",
+    )
+    .unwrap();
+    std::fs::write(frontend.join("_next/static/app.js"), "window.dzap = true;").unwrap();
+
+    let state = server::AppState::in_memory(server::realtime::Hub::new());
+    let app = server::build_router_with_state_and_frontend(state, frontend.clone());
+    let base = spawn_app(app).await;
+
+    let index = reqwest::get(format!("{base}/")).await.unwrap();
+    assert_eq!(index.status(), 200);
+    assert!(index.text().await.unwrap().contains("DZap USB"));
+
+    let asset = reqwest::get(format!("{base}/_next/static/app.js"))
+        .await
+        .unwrap();
+    assert_eq!(asset.status(), 200);
+    assert_eq!(asset.text().await.unwrap(), "window.dzap = true;");
+
+    std::fs::remove_dir_all(frontend).ok();
 }

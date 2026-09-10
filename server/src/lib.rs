@@ -13,12 +13,17 @@ use axum::http::{HeaderValue, Method, header::CONTENT_TYPE};
 use axum::routing::{get, post};
 use core::certificate::CertificateStore;
 use core::jobs::JobStore;
+use std::path::PathBuf;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
-const UI_ORIGINS: [&str; 3] = [
+const UI_ORIGINS: [&str; 6] = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://[::1]:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://[::1]:8080",
 ];
 
 pub(crate) fn is_allowed_ui_origin(origin: &str) -> bool {
@@ -80,6 +85,16 @@ pub fn build_router(hub: realtime::Hub) -> Router {
 }
 
 pub fn build_router_with_state(state: AppState) -> Router {
+    let frontend_directory = std::env::var_os("DZAP_FRONTEND_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/opt/dzap/frontend"));
+    build_router_with_state_and_frontend(state, frontend_directory)
+}
+
+pub fn build_router_with_state_and_frontend(
+    state: AppState,
+    frontend_directory: impl Into<PathBuf>,
+) -> Router {
     Router::new()
         .route("/api/drives", get(api::get_drives_handler))
         .route("/api/wipe/preflight", post(api::preflight_wipe_handler))
@@ -101,6 +116,7 @@ pub fn build_router_with_state(state: AppState) -> Router {
             get(api::get_wipe_methods_handler),
         )
         .route("/ws", get(api::ws_handler))
+        .fallback_service(ServeDir::new(frontend_directory.into()))
         .layer(cors_layer())
         .with_state(state)
 }

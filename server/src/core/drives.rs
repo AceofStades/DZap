@@ -273,7 +273,7 @@ fn inspect_block_usage(device: &LsblkDevice, is_descendant: bool, usage: &mut Bl
         .mountpoints
         .iter()
         .flatten()
-        .any(|mountpoint| mountpoint == "/")
+        .any(|mountpoint| is_protected_system_mount(mountpoint))
     {
         usage.is_os_drive = true;
     }
@@ -292,6 +292,12 @@ fn inspect_block_usage(device: &LsblkDevice, is_descendant: bool, usage: &mut Bl
     for child in &device.children {
         inspect_block_usage(child, true, usage);
     }
+}
+
+fn is_protected_system_mount(mountpoint: &str) -> bool {
+    matches!(mountpoint, "/" | "/boot" | "/boot/efi" | "/usr" | "/var")
+        || mountpoint == "/run/archiso"
+        || mountpoint.starts_with("/run/archiso/")
 }
 
 pub fn unmount_device(device_path: &str) -> Result<(), String> {
@@ -316,6 +322,14 @@ pub fn unmount_device(device_path: &str) -> Result<(), String> {
         .iter()
         .find(|dev| format!("/dev/{}", dev.name) == device_path)
         .ok_or_else(|| format!("device {device_path} not found in lsblk output"))?;
+
+    let mut usage = BlockUsage::default();
+    inspect_block_usage(target, false, &mut usage);
+    if usage.is_os_drive {
+        return Err(format!(
+            "refusing to unmount {device_path} because it contains the running system or DZap boot media"
+        ));
+    }
 
     let mut unmount_errors: Vec<String> = Vec::new();
 

@@ -1,32 +1,67 @@
-# DZap
+# DZap Live USB
 
-Drive Zap: A secure, cross-platform data wiping application that works on Windows, Linux, and Android devices.
+DZap is a bootable Linux environment for securely erasing attached storage. It detects storage topology, requires an identity-bound safety preflight, executes device-appropriate ATA, NVMe, or overwrite methods, verifies the result, and issues signed evidence certificates.
 
-SIH PS: 25070
+## Build the bootable image
 
+Builds currently target x86-64 Arch Linux hosts. Install the build tools:
 
-To run backend:
+```bash
+sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup
+rustup default stable
+rustup target add x86_64-unknown-linux-musl
 ```
+
+Build the hybrid BIOS/UEFI ISO:
+
+```bash
+make iso
+```
+
+The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, adds the DZap packages and startup files, exports the frontend, and builds a static Rust backend.
+
+Test the image with a dedicated virtual disk:
+
+```bash
+make smoke-iso
+make run-iso
+```
+
+The smoke test boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk.
+
+Write the hybrid ISO to a USB drive with a trusted imaging tool. Verify the destination carefully because imaging replaces the entire selected device.
+
+## Develop locally
+
+Start the backend as root:
+
+```bash
 cd server
 cargo build --release
-sudo ./target/release/server
+sudo DZAP_FRONTEND_DIR=../frontend/out ./target/release/server
 ```
 
-To run frontend open a new terminal:
-```
+For frontend development with hot reload:
+
+```bash
 npm run start:frontend
 ```
 
-Dependencies:
-```
-util-linux
-smartmontools
-android-tools
-hdparm
-nvme-cli
-```
+Runtime storage tools included in the live image are `util-linux`, `smartmontools`, `hdparm`, and `nvme-cli`.
 
-Node Dependencies:
-```
-npm install cross-env --save-dev
+## Verification
+
+Run the local checks:
+
+```bash
+cd server
+cargo test
+cargo clippy --all-targets -- -D warnings
+cd ../frontend
+npm run build
+npx tsc --noEmit
+cd ..
+make check-live
+make smoke-iso
+./server/scripts/e2e-qemu.sh
 ```

@@ -68,3 +68,30 @@ fn raid_descendant_is_recorded_once_in_repeated_topology() {
     assert_eq!(drives[0].active_dependencies[0].name, "/dev/md0");
     assert_eq!(drives[0].active_dependencies[0].device_type, "raid1");
 }
+
+#[test]
+fn archiso_boot_mount_marks_the_live_usb_as_an_os_drive() {
+    let input = br#"{
+        "blockdevices": [{
+            "name": "sdc",
+            "model": "DZap boot USB",
+            "size": 16000000000,
+            "rota": false,
+            "type": "disk",
+            "mountpoints": [null],
+            "tran": "usb",
+            "children": [{
+                "name": "sdc1",
+                "size": 16000000000,
+                "type": "part",
+                "mountpoints": ["/run/archiso/bootmnt"],
+                "fstype": "iso9660"
+            }]
+        }]
+    }"#;
+
+    let drives = storage_drives_from_lsblk(input, |_| Ok(false)).unwrap();
+
+    assert!(drives[0].is_mounted);
+    assert!(drives[0].is_os_drive);
+}
