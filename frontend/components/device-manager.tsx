@@ -6,7 +6,6 @@ import {
 	Shield,
 	Zap,
 	Settings,
-	FileText,
 	Play,
 	Square,
 	HardDrive,
@@ -39,9 +38,12 @@ import type {
 	StorageDevice,
 	DriveHealth,
 	WipeMethod,
+	WipeRequest,
+	WipePlan,
 } from "@/lib/types";
 import {
 	getDriveHealth,
+	preflightWipe,
 	startWipe,
 	getWipeMethods,
 	unmountDevice,
@@ -60,6 +62,9 @@ export function DeviceManager({
 	const [showAdvanced, setShowAdvanced] = useState(false);
 	const [showConfirmation, setShowConfirmation] = useState(false);
 	const [showStopConfirmation, setShowStopConfirmation] = useState(false);
+	const [isPreflighting, setIsPreflighting] = useState(false);
+	const [preflightError, setPreflightError] = useState<string | null>(null);
+	const [approvedPlan, setApprovedPlan] = useState<WipePlan | null>(null);
 	const [health, setHealth] = useState<DriveHealth | null>(null);
 	const [availableWipeMethods, setAvailableWipeMethods] = useState<
 		WipeMethod[]
@@ -100,33 +105,79 @@ export function DeviceManager({
 		fetchWipeMethods();
 	}, [device]);
 
-	const handleStartWipe = () => {
-		if (device && device.status === "ready") {
+	useEffect(() => {
+		setApprovedPlan(null);
+		setPreflightError(null);
+	}, [device?.id, wipeMethod]);
+
+	const buildWipeRequest = (target: Device): WipeRequest => ({
+		DevicePath: target.id,
+		Method: wipeMethod,
+		DeviceSerial:
+			target.deviceCategory === "mobile"
+				? target.serial
+				: (target as StorageDevice).name,
+		DeviceType: target.type,
+		DeviceModel: target.model,
+	});
+
+	const handleStartWipe = async () => {
+		if (!device || device.status !== "ready") return;
+
+		setIsPreflighting(true);
+		setPreflightError(null);
+		setApprovedPlan(null);
+		try {
+			const plan = await preflightWipe(buildWipeRequest(device));
+			if (plan.decision === "blocked") {
+				const reasons = plan.checks
+					.filter((check) => check.status === "blocked")
+					.map((check) => check.message);
+				setPreflightError(
+					reasons.join(" ") || "Wipe blocked by safety preflight.",
+				);
+				return;
+			}
+			setApprovedPlan(plan);
 			setShowConfirmation(true);
+		} catch (error) {
+			setPreflightError(
+				error instanceof Error
+					? error.message
+					: "Unable to run wipe safety checks.",
+			);
+		} finally {
+			setIsPreflighting(false);
 		}
 	};
 
 	const handleConfirmWipe = async () => {
-		if (!device) return;
+		if (!device || !approvedPlan?.identity) {
+			setShowConfirmation(false);
+			setPreflightError(
+				"The approved device identity is missing. Run the safety check again.",
+			);
+			return;
+		}
 		console.log("Starting wipe process for device:", device?.id);
 		try {
-			await startWipe({
-				DevicePath: device.id,
-				Method: wipeMethod,
-				DeviceSerial:
-					device.deviceCategory === "mobile"
-						? device.serial
-						: (device as StorageDevice).name, // Backend needs a serial, using name for now.
-				DeviceType: device.type,
-				DeviceModel: device.model,
+			setPreflightError(null);
+			const started = await startWipe({
+				...buildWipeRequest(device),
+				ExpectedIdentity: approvedPlan.identity,
 			});
 			setShowConfirmation(false);
 			router.push(
-				`/?tab=progress&jobId=${encodeURIComponent(device.id)}`,
+				`/?tab=progress&jobId=${encodeURIComponent(started.jobId)}`,
 			);
 		} catch (error) {
 			console.error("Failed to start wipe:", error);
-			// TODO: Show an error toast/message
+			setShowConfirmation(false);
+			setPreflightError(
+				error instanceof Error
+					? error.message
+					: "Failed to start wipe process.",
+			);
 		}
 	};
 
@@ -143,8 +194,6 @@ export function DeviceManager({
 			// TODO: Show an error toast/message
 		}
 	};
-
-	const handleGenerateCertificate = async () => {};
 
 	const handleStopWipe = () => {
 		setShowStopConfirmation(true);
@@ -235,6 +284,15 @@ export function DeviceManager({
 					</Alert>
 				)}
 
+				{preflightError && (
+					<Alert className="border-destructive/50 bg-destructive/5">
+						<AlertTriangle className="h-4 w-4 text-destructive" />
+						<AlertDescription className="text-destructive">
+							{preflightError}
+						</AlertDescription>
+					</Alert>
+				)}
+
 				{isWiping && (
 					// This part will be handled by the progress tracker page
 					<Card className="border-warning bg-warning/5 component-border component-border-hover">
@@ -305,7 +363,7 @@ export function DeviceManager({
 									<p className="text-lg font-medium text-foreground font-mono">
 										{device.deviceCategory === "mobile"
 											? device.serial
-											: "N/A"}
+											: device.serial || "N/A"}
 									</p>
 								</div>
 								<div>
@@ -437,7 +495,7 @@ export function DeviceManager({
 
 				<Card
 					className="component-border component-border-hover"
-					disabled={isOSDrive}
+					aria-disabled={isOSDrive}
 				>
 					<CardHeader>
 						<CardTitle className="flex items-center space-x-2">
@@ -595,26 +653,18 @@ export function DeviceManager({
 
 							<Button
 								size="lg"
-								disabled={!isReady || isOSDrive}
+								disabled={!isReady || isOSDrive || isPreflighting}
 								className="bg-primary hover:bg-primary/90"
 								onClick={handleStartWipe}
 							>
 								<Play className="h-4 w-4 mr-2" />
-								{isWiping
+								{isPreflighting
+									? "Checking Safety..."
+									: isWiping
 									? "Wiping in Progress..."
 									: isCompleted
 										? "Wipe Completed"
 										: "Start Wipe"}
-							</Button>
-
-							<Button
-								variant="outline"
-								size="lg"
-								disabled={isWiping || isOSDrive}
-								onClick={handleGenerateCertificate}
-							>
-								<FileText className="h-4 w-4 mr-2" />
-								Generate Certificate
 							</Button>
 
 							{!isReady && !isOSDrive && (

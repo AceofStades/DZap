@@ -1,145 +1,78 @@
-# DZap: Secure Drive Wiper
+# DZap Live USB
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Go](https://img.shields.io/badge/backend-Go-00ADD8.svg) ![Electron](https://img.shields.io/badge/frontend-Electron-47848F.svg) ![React](https://img.shields.io/badge/UI-React-61DAFB.svg) ![Status](https://img.shields.io/badge/status-Alpha-orange.svg)
+DZap is a bootable Linux environment for securely erasing attached storage. It detects storage topology, requires an identity-bound safety preflight, executes device-appropriate ATA, NVMe, or overwrite methods, verifies the result, and issues signed evidence certificates.
 
-**DZap** is a cross-platform utility designed to securely sanitize storage media (HDDs, SSDs, NVMe, USBs) to NIST 800-88 standards.
+Detailed design, safety, API, live-image, testing, history, and roadmap documentation is available in [`docs/`](docs/README.md).
 
-> **WARNING:** This software is designed to **permanently and irretrievably destroy data**. Use with extreme caution. The developers are not responsible for accidental data loss.
-
----
+> [!CAUTION]
+> DZap permanently destroys data on the selected storage device. Verify the device identity and every preflight result before authorizing a wipe.
 
 ## Screenshots
 
-![Dashboard](images/Dashboard.png)
-![Certificate Page](images/Certificate.png)
+![DZap device dashboard](images/Dashboard.png)
 
----
+![DZap certificate page](images/Certificate.png)
 
-## Key Features
+## Build the bootable image
 
-* **Modern Tech Stack:** Built with **Electron, React, & Tailwind CSS** for a responsive UI, backed by **Go** for high-performance hardware interaction.
-* **NIST 800-88 Compliance:**
-    * **Clear:** 1-pass and 3-pass overwrite algorithms for HDDs.
-    * **Purge:** Firmware-based `ATA Secure Erase` and `NVMe Format` for modern SSDs.
-* **Secure Architecture:** Uses a **Privileged Helper** pattern. The UI runs as a standard user, while the backend runs securely via Linux PolicyKit (`pkexec`) only when necessary.
-* **Certified Destruction:** Generates a verifiable HTML/PDF certificate upon successful completion.
-* **Hot-Plug Support:** Automatically detects drives connected via USB or SATA/NVMe interfaces.
-
----
-
-## Prerequisites
-
-Before installing, ensure your Linux system has the following dependencies:
-
-  * **Runtime Tools:** `smartmontools`, `hdparm`, `nvme-cli`, `polkit`
-  * **Build Tools:** `go` (v1.21+), `npm` / `node`, `gcc`
-  * **AI Runtime:** `libonnxruntime` (often available as `onnxruntime` or `libonnxruntime-dev`) (Disabled for now)
-
-**Arch Linux:**
+Builds currently target x86-64 Arch Linux hosts. Install the build tools:
 
 ```bash
-sudo pacman -S go npm smartmontools hdparm nvme-cli onnxruntime
+sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup
+rustup default stable
+rustup target add x86_64-unknown-linux-musl
 ```
 
-**Ubuntu/Debian:**
+Build the hybrid BIOS/UEFI ISO:
 
 ```bash
-sudo apt install golang nodejs npm smartmontools hdparm nvme-cli libonnxruntime-dev
+make iso
 ```
 
------
+The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, adds the DZap packages and startup files, exports the frontend, and builds a static Rust backend.
 
-## Installation & Build
-
-Because DZap uses a system-level backend service, installation is a two-step process.
-
-### 1\. Build the Application
-
-Clone the repository and build the source code.
+Test the image with a dedicated virtual disk:
 
 ```bash
-npm install
-npm install cross-env --save-dev
-npm run start:frontend
+make smoke-iso
+make run-iso
 ```
 
-In another terminal run:
+The smoke test boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk.
+
+Write the hybrid ISO to a USB drive with a trusted imaging tool. Verify the destination carefully because imaging replaces the entire selected device.
+
+## Develop locally
+
+Start the backend as root:
 
 ```bash
 cd server
-sudo go run .
+cargo build --release
+sudo DZAP_FRONTEND_DIR=../frontend/out ./target/release/server
 ```
 
-### 2\. Install the Backend Helper
-
-Run the provided installer script. This copies the Go binary to a secure system location (`/usr/local/bin`) and installs the PolicyKit rules allow the UI to communicate with it.
+For frontend development with hot reload:
 
 ```bash
-sudo ./install.sh
+npm run start:frontend
 ```
 
------
+Runtime storage tools included in the live image are `util-linux`, `smartmontools`, `hdparm`, and `nvme-cli`.
 
-## Usage
+## Verification
 
-Once installed, you can run the application like any other Linux program.
+Run the local checks:
 
-1.  Navigate to the `dist/` folder (or wherever you moved the AppImage).
-2.  Run the application:
-    ```bash
-    ./DZap\ Secure\ Wiper-1.0.0.AppImage
-    ```
-    *(Note: You do NOT need `sudo` to run the AppImage).*
-3.  When the backend needs to start (usually immediately upon launch), the system will prompt you for your password via a secure GUI dialog.
-
------
-
-## Development
-
-For developers contributing to DZap, use the development mode which enables hot-reloading.
-
-**Recommended Workflow:**
-
-1.  **Terminal 1 (Backend):**
-    ```bash
-    cd server
-    sudo go run .
-    ```
-2.  **Terminal 2 (Frontend):**
-    ```bash
-    npm run start:frontend
-    ```
-
------
-
-## Project Structure
-
+```bash
+cd server
+cargo test
+cargo clippy --all-targets -- -D warnings
+cd ../frontend
+npm run build
+npx tsc --noEmit
+cd ..
+make check-live
+make smoke-iso
+./server/scripts/e2e-qemu.sh
 ```
-DZap/
-├── electron/          # Main process logic (window creation, IPC)
-├── frontend/          # React UI (Tailwind, Components, State)
-├── server/            # Go Backend
-│   ├── api/           # HTTP Handlers
-│   ├── core/          # Drive detection, Wiping logic, AI prediction
-│   └── realtime/      # WebSocket hub
-├── model/             # ONNX AI models and feature maps
-└── install.sh         # System installer script (In Development)
-```
-
------
-
-## Contributing
-
-Contributions are welcome\! Please follow these steps:
-
-1.  Fork the repository.
-2.  Create a feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
-
------
-
-## License
-
-Distributed under the MIT License. See `LICENSE` for more information.

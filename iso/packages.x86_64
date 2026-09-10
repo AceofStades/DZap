@@ -1,0 +1,13 @@
+chromium
+curl
+hdparm
+mesa
+nvme-cli
+openbox
+smartmontools
+ttf-liberation
+xf86-video-vesa
+xorg-server
+xorg-xauth
+xorg-xinit
+xorg-xset

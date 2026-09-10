@@ -26,21 +26,28 @@ import { Progress } from "./ui/progress";
 import { Separator } from "./ui/separator";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { abortWipe } from "@/lib/utils";
+import {
+	abortWipe,
+	generateCertificate,
+	getWipeJob,
+	getWipeJobs,
+} from "@/lib/utils";
+import type { WipeJobRecord } from "@/lib/types";
 
 interface WipeJob {
 	id: string;
 	deviceName: string;
 	deviceModel: string;
 	method: string;
-	status: "running" | "paused" | "completed" | "failed" | "queued";
+	status: "running" | "paused" | "verifying" | "verified" | "failed" | "queued";
 	progress: number;
 	currentPass: number;
 	totalPasses: number;
 	startTime: string;
 	estimatedCompletion: string;
 	speed: string;
-	sectorNumber: number;
+	evidenceHash: string;
+	failure: string | null;
 }
 
 interface LogEntry {
@@ -49,37 +56,64 @@ interface LogEntry {
 	level: "info" | "warning" | "error" | "success";
 	message: string;
 	deviceId?: string;
-	sectorNumber?: number;
+}
+
+function jobView(record: WipeJobRecord): WipeJob {
+	return {
+		id: record.id,
+		deviceName: record.devicePath,
+		deviceModel: record.deviceModel,
+		method: record.method,
+		status: record.status,
+		progress:
+			record.status === "verifying" || record.status === "verified" ? 100 : 0,
+		currentPass: 0,
+		totalPasses: 0,
+		startTime: record.startedAt,
+		estimatedCompletion: "",
+		speed: "0 MB/s",
+		evidenceHash: record.evidenceHash,
+		failure: record.failure,
+	};
 }
 
 export function ProgressTracker() {
 	const [jobs, setJobs] = useState<Map<string, WipeJob>>(new Map());
 	const [logs, setLogs] = useState<LogEntry[]>([]);
 	const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+	const [certificateMessage, setCertificateMessage] = useState<string | null>(
+		null,
+	);
 	const ws = useRef<WebSocket | null>(null);
 	const searchParams = useSearchParams();
 
 	useEffect(() => {
-		const newJobId = searchParams.get("jobId");
-		if (newJobId && !jobs.has(newJobId)) {
-			const newJob: WipeJob = {
-				id: newJobId,
-				deviceName: newJobId, // Placeholder, update with more info if available
-				deviceModel: "Unknown",
-				method: "Unknown",
-				status: "queued",
-				progress: 0,
-				currentPass: 0,
-				totalPasses: 0,
-				startTime: new Date().toISOString(),
-				estimatedCompletion: "",
-				speed: "0 MB/s",
-			};
-			setJobs(new Map(jobs.set(newJobId, newJob)));
-			if (!selectedJobId) {
-				setSelectedJobId(newJobId);
-			}
-		}
+		let cancelled = false;
+		const requestedJobId = searchParams.get("jobId");
+		getWipeJobs()
+			.then(async (records) => {
+				if (
+					requestedJobId &&
+					!records.some((record) => record.id === requestedJobId)
+				) {
+					records = [await getWipeJob(requestedJobId), ...records];
+				}
+				if (cancelled) return;
+				setJobs(
+					new Map(
+						records.map((record) => [record.id, jobView(record)]),
+					),
+				);
+				setSelectedJobId(
+					requestedJobId || records.at(0)?.id || null,
+				);
+			})
+			.catch((error) => {
+				if (!cancelled) console.error("Failed to load wipe jobs:", error);
+			});
+		return () => {
+			cancelled = true;
+		};
 	}, [searchParams]);
 
 	useEffect(() => {
@@ -92,36 +126,70 @@ export function ProgressTracker() {
 			try {
 				const data = JSON.parse(event.data);
 
-				// It's a progress update
-				if (data.deviceId) {
+				if (data.jobId) {
 					setJobs((prevJobs) => {
 						const newJobs = new Map(prevJobs);
-						const job = newJobs.get(data.deviceId);
+						const job = newJobs.get(data.jobId);
 						if (job) {
+							const status =
+								data.status === "verified" ||
+								data.status === "verifying" ||
+								data.status === "failed"
+									? data.status
+									: "running";
 							const updatedJob = {
 								...job,
-								status: "running",
-								progress: data.progress,
-								currentPass: data.currentPass,
-								totalPasses: data.totalPasses,
-								speed: data.speed,
-								estimatedCompletion: data.eta,
+								status,
+								progress:
+									status === "verified" || status === "verifying"
+										? 100
+										: (data.progress ?? job.progress),
+								currentPass: data.currentPass ?? job.currentPass,
+								totalPasses: data.totalPasses ?? job.totalPasses,
+								speed: data.speed ?? job.speed,
+								estimatedCompletion:
+									data.eta ?? job.estimatedCompletion,
 								deviceModel:
 									data.deviceModel || job.deviceModel,
-								method: data.methodName || job.method,
+								method:
+									data.methodName || data.method || job.method,
+								evidenceHash:
+									data.evidenceHash || job.evidenceHash,
+								failure: data.error || job.failure,
 							};
-							newJobs.set(data.deviceId, updatedJob);
+							newJobs.set(data.jobId, updatedJob);
 						}
 						return newJobs;
 					});
+					if (
+						data.status === "verified" ||
+						data.status === "failed"
+					) {
+						getWipeJob(data.jobId)
+							.then((record) => {
+								setJobs((previous) => {
+									const updated = new Map(previous);
+									updated.set(record.id, jobView(record));
+									return updated;
+								});
+							})
+							.catch((error) =>
+								console.error("Failed to refresh wipe job:", error),
+							);
+					}
 				}
 
-				// It's a log message
 				const newLog: LogEntry = {
-					id: Date.now().toString(),
+					id: `${Date.now()}-${Math.random()}`,
 					timestamp: new Date().toISOString(),
-					level: "info",
-					message: event.data,
+					level:
+						data.status === "failed"
+							? "error"
+							: data.status === "verified"
+								? "success"
+								: "info",
+					message: data.message || data.error || event.data,
+					deviceId: data.jobId,
 				};
 				setLogs((prev) => [...prev, newLog]);
 			} catch (e) {
@@ -156,8 +224,10 @@ export function ProgressTracker() {
 				return <Play className="h-4 w-4 text-warning" />;
 			case "paused":
 				return <Pause className="h-4 w-4 text-muted-foreground" />;
-			case "completed":
+			case "verified":
 				return <CheckCircle className="h-4 w-4 text-success" />;
+			case "verifying":
+				return <Clock className="h-4 w-4 text-warning" />;
 			case "failed":
 				return <AlertCircle className="h-4 w-4 text-destructive" />;
 			default:
@@ -171,8 +241,10 @@ export function ProgressTracker() {
 				return "bg-warning/20 text-warning";
 			case "paused":
 				return "bg-muted text-muted-foreground";
-			case "completed":
+			case "verified":
 				return "bg-success/20 text-success";
+			case "verifying":
+				return "bg-warning/20 text-warning";
 			case "failed":
 				return "bg-destructive/20 text-destructive";
 			default:
@@ -208,6 +280,22 @@ export function ProgressTracker() {
 		} catch (error) {
 			console.error("Failed to abort wipe:", error);
 			// TODO: Show error toast
+		}
+	};
+
+	const handleGenerateCertificate = async (jobId: string) => {
+		setCertificateMessage("Generating certificate...");
+		try {
+			await generateCertificate(jobId);
+			setCertificateMessage(
+				"Certificate generated. It is now available in Certificates.",
+			);
+		} catch (error) {
+			setCertificateMessage(
+				error instanceof Error
+					? error.message
+					: "Failed to generate certificate.",
+			);
 		}
 	};
 
@@ -271,7 +359,10 @@ export function ProgressTracker() {
 										selectedJobId === job.id &&
 											"ring-2 ring-primary",
 									)}
-									onClick={() => setSelectedJobId(job.id)}
+								onClick={() => {
+									setSelectedJobId(job.id);
+									setCertificateMessage(null);
+								}}
 								>
 									<CardContent className="p-4">
 										<div className="space-y-3">
@@ -444,7 +535,43 @@ export function ProgressTracker() {
 												%
 											</span>
 										</div>
+										{selectedJobData.evidenceHash && (
+											<div className="space-y-1">
+												<span className="text-muted-foreground">
+													Evidence hash
+												</span>
+												<p className="break-all font-mono text-xs">
+													{selectedJobData.evidenceHash}
+												</p>
+											</div>
+										)}
+										{selectedJobData.failure && (
+											<p className="text-sm text-destructive">
+												{selectedJobData.failure}
+											</p>
+										)}
 									</div>
+
+									{selectedJobData.status === "verified" && (
+										<>
+											<Separator />
+											<Button
+												className="w-full"
+												onClick={() =>
+													handleGenerateCertificate(
+														selectedJobData.id,
+													)
+												}
+											>
+												Generate Certificate
+											</Button>
+											{certificateMessage && (
+												<p className="text-xs text-muted-foreground">
+													{certificateMessage}
+												</p>
+											)}
+										</>
+									)}
 								</div>
 							) : (
 								<p className="text-muted-foreground text-sm">
@@ -492,7 +619,7 @@ export function ProgressTracker() {
 				<CardContent>
 					<ScrollArea className="h-64 w-full bg-black rounded-md p-4 font-mono text-sm component-border">
 						<div className="space-y-1">
-							{logs.map((log) => (
+							{filteredLogs.map((log) => (
 								<div key={log.id} className="flex space-x-2">
 									<span className="text-gray-500 shrink-0">
 										[

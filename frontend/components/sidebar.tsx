@@ -131,7 +131,10 @@ export function Sidebar({
 											device.deviceCategory ===
 												"storage" && device.isOSDrive,
 										[getStatusColor(device.status)]:
-											!device.isOSDrive,
+											!(
+												device.deviceCategory ===
+													"storage" && device.isOSDrive
+											),
 									},
 									selectedDevice?.id === device.id &&
 										"ring-2 ring-primary",

@@ -49,7 +49,8 @@ export function ConfirmationModal({
 	const serial =
 		device?.deviceCategory === "mobile"
 			? device.serial
-			: (device as StorageDevice)?.name;
+			: (device as StorageDevice)?.serial ||
+				(device as StorageDevice)?.name;
 	const requiredText = device ? `WIPE ${serial}` : "";
 	const isConfirmationValid = confirmationText === requiredText;
 	const canProceed =

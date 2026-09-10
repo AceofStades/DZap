@@ -1,5 +1,12 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type {
+	SignedCertificate,
+	StartWipeResponse,
+	WipeJobRecord,
+	WipePlan,
+	WipeRequest,
+} from "@/lib/types";
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -24,13 +31,35 @@ export async function getDriveHealth(deviceName: string) {
 	return response.json();
 }
 
-export async function startWipe(config: {
-	DevicePath: string;
-	Method: string;
-	DeviceSerial: string;
-	DeviceType: string;
-	DeviceModel: string;
-}) {
+async function wipeRequestError(response: Response): Promise<Error> {
+	const body = await response.json().catch(() => null);
+	if (body?.decision === "blocked" && Array.isArray(body.checks)) {
+		const reasons = body.checks
+			.filter((check: { status?: string }) => check.status === "blocked")
+			.map((check: { message?: string }) => check.message)
+			.filter(Boolean);
+		return new Error(reasons.join(" ") || "Wipe blocked by safety preflight.");
+	}
+	return new Error(body?.error || `Server error: ${response.status}`);
+}
+
+export async function preflightWipe(config: WipeRequest): Promise<WipePlan> {
+	const response = await fetch(`${API_BASE_URL}/wipe/preflight`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(config),
+	});
+	if (!response.ok) {
+		throw await wipeRequestError(response);
+	}
+	return response.json();
+}
+
+export async function startWipe(
+	config: WipeRequest,
+): Promise<StartWipeResponse> {
 	const response = await fetch(`${API_BASE_URL}/wipe`, {
 		method: "POST",
 		headers: {
@@ -39,7 +68,7 @@ export async function startWipe(config: {
 		body: JSON.stringify(config),
 	});
 	if (!response.ok) {
-		throw new Error("Failed to start wipe process");
+		throw await wipeRequestError(response);
 	}
 	return response.json();
 }
@@ -59,10 +88,28 @@ export async function getWipeMethods(deviceId: string) {
 	return response.json();
 }
 
-export async function getCertificates() {
+export async function getCertificates(): Promise<SignedCertificate[]> {
 	const response = await fetch(`${API_BASE_URL}/certificates`);
 	if (!response.ok) {
 		throw new Error("Failed to fetch certificates");
+	}
+	return response.json();
+}
+
+export async function getWipeJobs(): Promise<WipeJobRecord[]> {
+	const response = await fetch(`${API_BASE_URL}/wipe/jobs`);
+	if (!response.ok) {
+		throw new Error("Failed to fetch wipe jobs");
+	}
+	return response.json();
+}
+
+export async function getWipeJob(jobId: string): Promise<WipeJobRecord> {
+	const response = await fetch(
+		`${API_BASE_URL}/wipe/jobs/${encodeURIComponent(jobId)}`,
+	);
+	if (!response.ok) {
+		throw new Error("Failed to fetch wipe job");
 	}
 	return response.json();
 }
@@ -109,20 +156,32 @@ export async function abortWipe(deviceId: string) {
 	return response.json();
 }
 
-export async function generateCertificate(data: {
-	model: string;
-	serial: string;
-	method: string;
-}) {
+export async function generateCertificate(
+	jobId: string,
+): Promise<SignedCertificate> {
 	const response = await fetch(`${API_BASE_URL}/certificate/generate`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify(data),
+		body: JSON.stringify({ jobId }),
 	});
 	if (!response.ok) {
 		throw new Error("Failed to generate certificate");
 	}
 	return response.json();
+}
+
+export async function downloadCertificatePdf(jobId: string): Promise<Blob> {
+	const response = await fetch(`${API_BASE_URL}/certificate?format=pdf`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ jobId }),
+	});
+	if (!response.ok) {
+		throw new Error("Failed to download certificate PDF");
+	}
+	return response.blob();
 }
