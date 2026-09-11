@@ -77,7 +77,7 @@ The frontend is a Next.js App Router application exported as static files. It ha
 
 `frontend/lib/utils.ts` is the browser API client. `frontend/lib/types.ts` mirrors backend JSON structures. Reusable visual primitives live under `frontend/components/ui/`.
 
-The browser currently uses `http://localhost:8080/api` and `ws://localhost:8080/ws`. The backend also permits the equivalent `127.0.0.1` and IPv6 loopback origins for ports 3000 and 8080.
+The browser derives HTTP and WebSocket endpoints from the dashboard's current origin, so the packaged frontend follows whichever permitted loopback hostname opened it. `NEXT_PUBLIC_DZAP_SERVER_ORIGIN` is an explicit build-time override for running the Next.js development server on port 3000 against the backend on port 8080.
 
 ## Request and worker flow
 
@@ -94,7 +94,7 @@ For a wipe request:
 7. Verified evidence is persisted before the terminal WebSocket event is sent.
 8. The reservation is released when the orchestration task ends, including error paths.
 
-WebSocket delivery is advisory UI telemetry. The persistent job record is authoritative. A client that misses messages can reload jobs through the HTTP API.
+WebSocket delivery is advisory UI telemetry. The persistent job record is authoritative. The progress view loads that record on entry and page navigation, reloads it whenever the socket connects, and retries a closed socket with exponential delays capped at ten seconds. Terminal events trigger an immediate single-job reload. This lets a refreshed or temporarily disconnected browser recover status without treating missed WebSocket messages as evidence.
 
 ## State and ownership
 

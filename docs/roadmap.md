@@ -111,12 +111,15 @@ Bit-for-bit reproducibility may require normalizing filesystem timestamps, ISO m
 
 The dashboard works for the tested flow, but several pieces still reflect earlier product assumptions or development shortcuts.
 
+### Implemented reliability work
+
+- `tab` and `jobId` now own dashboard navigation, including the transition from a newly authorized wipe into its progress record.
+- The WebSocket reconnects with exponential delays capped at ten seconds and reloads authoritative records after every successful connection.
+- HTTP and WebSocket endpoints follow the current page origin. A build-time override supports the separate development server.
+- Abort text distinguishes host overwrites from firmware operations that may continue inside a controller after the local command is stopped. Pause remains API-only.
+
 ### Planned work
 
-- Read `tab` and `jobId` from the URL when the dashboard starts so a newly created wipe opens the intended progress view.
-- Reconnect the WebSocket with bounded backoff and reload the authoritative job record after reconnecting.
-- Derive the WebSocket URL from the current page origin instead of assuming `ws://localhost:8080/ws`.
-- Make pause and abort controls describe the actual method semantics. Pause applies to host overwrite chunks; firmware commands may not be pausable after submission.
 - Remove stale claims such as DoD/Gutmann branding unless a named method is implemented and verified exactly as claimed.
 - Replace leftover product names and desktop-application metadata with the DZap live-appliance identity.
 - Re-enable TypeScript and lint failures in the production build, then fix every resulting error instead of suppressing the gate.
@@ -128,10 +131,8 @@ The backend remains the authority for device identity, supported methods, prefli
 
 Job persistence already validates records at startup and converts interrupted nonterminal jobs to failures. The live workflow still needs clearer recovery behavior.
 
-### Planned work
+The dashboard now lists persisted records after a reload, resumes observing nonterminal jobs, and shows the backend's exact failure reason. If the backend restarted, this includes `backend restarted before terminal evidence was recorded`. Remaining work:
 
-- Show recovered failed jobs with the exact interruption reason after a backend restart.
-- Let the UI resume observing a running or verifying job after a page reload.
 - Display the evidence-chain validation result and certificate/export availability in job history.
 - Expose enough firmware status to distinguish command rejection, device-reported failure, timeout, and an operator abort request.
 - Add an explicit retry path that creates a new job and never mutates the evidence of the failed attempt.

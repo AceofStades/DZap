@@ -14,10 +14,29 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
-const API_BASE_URL = "http://localhost:8080/api";
+const configuredServerOrigin =
+	process.env.NEXT_PUBLIC_DZAP_SERVER_ORIGIN?.trim() || null;
+
+function backendUrl(path: string): string {
+	if (typeof window === "undefined") {
+		throw new Error("The DZap backend URL is only available in the browser.");
+	}
+	const origin = configuredServerOrigin || window.location.origin;
+	return new URL(path, `${origin.replace(/\/$/, "")}/`).toString();
+}
+
+function apiUrl(path: string): string {
+	return backendUrl(`/api${path}`);
+}
+
+export function getWebSocketUrl(): string {
+	const url = new URL(backendUrl("/ws"));
+	url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+	return url.toString();
+}
 
 export async function getDevices() {
-	const response = await fetch(`${API_BASE_URL}/drives`);
+	const response = await fetch(apiUrl("/drives"));
 	if (!response.ok) {
 		throw new Error("Failed to fetch devices");
 	}
@@ -26,7 +45,7 @@ export async function getDevices() {
 
 export async function getDriveHealth(deviceName: string) {
 	const drive = deviceName.replace("/dev/", "");
-	const response = await fetch(`${API_BASE_URL}/drive/${drive}/health`);
+	const response = await fetch(apiUrl(`/drive/${drive}/health`));
 	if (!response.ok) {
 		throw new Error("Failed to fetch drive health");
 	}
@@ -46,7 +65,7 @@ async function wipeRequestError(response: Response): Promise<Error> {
 }
 
 export async function preflightWipe(config: WipeRequest): Promise<WipePlan> {
-	const response = await fetch(`${API_BASE_URL}/wipe/preflight`, {
+	const response = await fetch(apiUrl("/wipe/preflight"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -62,7 +81,7 @@ export async function preflightWipe(config: WipeRequest): Promise<WipePlan> {
 export async function startWipe(
 	config: WipeRequest,
 ): Promise<StartWipeResponse> {
-	const response = await fetch(`${API_BASE_URL}/wipe`, {
+	const response = await fetch(apiUrl("/wipe"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -81,9 +100,7 @@ export async function getWipeMethods(deviceId: string) {
 	const identifier = deviceId.startsWith("/dev/")
 		? deviceId.substring(5)
 		: deviceId;
-	const response = await fetch(
-		`${API_BASE_URL}/drive/${identifier}/wipe-methods`,
-	);
+	const response = await fetch(apiUrl(`/drive/${identifier}/wipe-methods`));
 	if (!response.ok) {
 		throw new Error("Failed to fetch wipe methods");
 	}
@@ -91,7 +108,7 @@ export async function getWipeMethods(deviceId: string) {
 }
 
 export async function getCertificates(): Promise<SignedCertificate[]> {
-	const response = await fetch(`${API_BASE_URL}/certificates`);
+	const response = await fetch(apiUrl("/certificates"));
 	if (!response.ok) {
 		throw new Error("Failed to fetch certificates");
 	}
@@ -99,25 +116,25 @@ export async function getCertificates(): Promise<SignedCertificate[]> {
 }
 
 export async function getWipeJobs(): Promise<WipeJobRecord[]> {
-	const response = await fetch(`${API_BASE_URL}/wipe/jobs`);
+	const response = await fetch(apiUrl("/wipe/jobs"));
 	if (!response.ok) {
-		throw new Error("Failed to fetch wipe jobs");
+		throw await apiResponseError(response, "Failed to fetch wipe jobs.");
 	}
 	return response.json();
 }
 
 export async function getWipeJob(jobId: string): Promise<WipeJobRecord> {
 	const response = await fetch(
-		`${API_BASE_URL}/wipe/jobs/${encodeURIComponent(jobId)}`,
+		apiUrl(`/wipe/jobs/${encodeURIComponent(jobId)}`),
 	);
 	if (!response.ok) {
-		throw new Error("Failed to fetch wipe job");
+		throw await apiResponseError(response, `Failed to fetch wipe job ${jobId}.`);
 	}
 	return response.json();
 }
 
 export async function unmountDevice(devicePath: string) {
-	const response = await fetch(`${API_BASE_URL}/unmount`, {
+	const response = await fetch(apiUrl("/unmount"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -131,7 +148,7 @@ export async function unmountDevice(devicePath: string) {
 }
 
 export async function pauseWipe(deviceId: string) {
-	const response = await fetch(`${API_BASE_URL}/wipe/pause`, {
+	const response = await fetch(apiUrl("/wipe/pause"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -145,7 +162,7 @@ export async function pauseWipe(deviceId: string) {
 }
 
 export async function abortWipe(deviceId: string) {
-	const response = await fetch(`${API_BASE_URL}/wipe/abort`, {
+	const response = await fetch(apiUrl("/wipe/abort"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -153,7 +170,7 @@ export async function abortWipe(deviceId: string) {
 		body: JSON.stringify({ deviceId }),
 	});
 	if (!response.ok) {
-		throw new Error("Failed to abort wipe");
+		throw await apiResponseError(response, "Failed to request wipe abort.");
 	}
 	return response.json();
 }
@@ -161,7 +178,7 @@ export async function abortWipe(deviceId: string) {
 export async function generateCertificate(
 	jobId: string,
 ): Promise<SignedCertificate> {
-	const response = await fetch(`${API_BASE_URL}/certificate/generate`, {
+	const response = await fetch(apiUrl("/certificate/generate"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -175,7 +192,7 @@ export async function generateCertificate(
 }
 
 export async function downloadCertificatePdf(jobId: string): Promise<Blob> {
-	const response = await fetch(`${API_BASE_URL}/certificate?format=pdf`, {
+	const response = await fetch(apiUrl("/certificate?format=pdf"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -197,7 +214,7 @@ async function apiResponseError(
 }
 
 export async function getEvidenceDestinations(): Promise<ExportDestination[]> {
-	const response = await fetch(`${API_BASE_URL}/evidence/destinations`);
+	const response = await fetch(apiUrl("/evidence/destinations"));
 	if (!response.ok) {
 		throw await apiResponseError(
 			response,
@@ -210,7 +227,7 @@ export async function getEvidenceDestinations(): Promise<ExportDestination[]> {
 export async function mountEvidenceDestination(
 	destination: ExportDestination,
 ): Promise<ExportDestination> {
-	const response = await fetch(`${API_BASE_URL}/evidence/mount`, {
+	const response = await fetch(apiUrl("/evidence/mount"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -230,7 +247,7 @@ export async function exportEvidence(
 	jobId: string,
 	destination: ExportDestination,
 ): Promise<EvidenceExportResult> {
-	const response = await fetch(`${API_BASE_URL}/evidence/export`, {
+	const response = await fetch(apiUrl("/evidence/export"), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",

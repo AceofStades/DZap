@@ -172,6 +172,6 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - Power-loss behavior during each sanitization method.
 - Export, safe removal, and reboot retention on physical FAT32, exFAT, and ext4 USB media.
 - Secure Boot.
-- Frontend reconnection and long-running job recovery under browser restarts.
+- Recovery behavior during physical long-running wipes, browser restarts, and backend restarts.
 
 These are release risks and belong in the roadmap rather than being implied by a green unit suite.

@@ -417,8 +417,10 @@ The bundle is created at `DZap-Evidence/<job-id>/` and contains `job.json`, `cer
 
 ## WebSocket
 
+The packaged dashboard derives the socket endpoint from its page origin. A dashboard opened at `http://127.0.0.1:8080/` therefore connects to:
+
 ```text
-ws://localhost:8080/ws
+ws://127.0.0.1:8080/ws
 ```
 
 The socket is broadcast-only. Clients do not send commands through it.
@@ -463,7 +465,7 @@ Terminal verified event:
 
 Failure events contain `status: "failed"` and `error`. Clients should use `jobId` to refresh the complete authoritative record over HTTP after a terminal event.
 
-Broadcast receivers that lag skip missed messages and continue with newer messages. The current frontend does not automatically reconnect after socket closure; job reload/reconnect is planned work.
+Broadcast receivers that lag skip missed messages and continue with newer messages. The frontend reconnects after closure with exponential delays capped at ten seconds. Every successful connection reloads authoritative job records over HTTP, and terminal events reload their specific job. Session logs contain only WebSocket messages observed by that browser; they are not evidence records.
 
 ## Browser-origin policy
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
 import { DeviceManager } from "@/components/device-manager";
@@ -12,10 +13,26 @@ import { getDevices } from "@/lib/utils";
 
 export type TabType = "devices" | "progress" | "certificates";
 
+const isTab = (value: string | null): value is TabType =>
+	value === "devices" || value === "progress" || value === "certificates";
+
 export default function Dashboard() {
-	const [activeTab, setActiveTab] = useState<TabType>("devices");
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const requestedTab = searchParams.get("tab");
+	const activeTab: TabType = isTab(requestedTab) ? requestedTab : "devices";
 	const [allDevices, setAllDevices] = useState<Device[]>([]);
 	const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+
+	const setActiveTab = useCallback(
+		(tab: TabType) => {
+			const next = new URLSearchParams(searchParams.toString());
+			next.set("tab", tab);
+			if (tab !== "progress") next.delete("jobId");
+			router.push(`/?${next.toString()}`);
+		},
+		[router, searchParams],
+	);
 
 	const fetchDevices = async () => {
 		try {

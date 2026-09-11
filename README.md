@@ -52,10 +52,11 @@ cargo build --release
 sudo DZAP_FRONTEND_DIR=../frontend/out ./target/release/server
 ```
 
-For frontend development with hot reload:
+For frontend development with hot reload, point the static client at the separately running backend:
 
 ```bash
-npm run start:frontend
+cd frontend
+NEXT_PUBLIC_DZAP_SERVER_ORIGIN=http://127.0.0.1:8080 npm run dev
 ```
 
 Runtime storage tools included in the live image are `util-linux`, `smartmontools`, `hdparm`, and `nvme-cli`.
