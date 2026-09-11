@@ -16,12 +16,13 @@ DZap currently provides:
 - Full readback verification for host overwrites and firmware-status plus sampled-readback verification for firmware erase operations.
 - Persistent, hash-chained wipe job records while the running filesystem remains available.
 - RSA-signed JSON and PDF certificates issued only from verified server-owned evidence.
+- Backend-owned, hash-manifested evidence bundles for removable FAT32, exFAT, or ext4 media.
 - HTTP and WebSocket APIs bound to localhost.
 - A static Next.js dashboard served by the Rust backend.
 - A hybrid BIOS/UEFI ArchISO image with automatic kiosk startup.
 - Unit, integration, destructive virtual-disk, and live-image boot tests.
 
-The largest current product gap is evidence persistence across a live-system reboot. The backend writes durable files correctly, but those files currently live in ArchISO's temporary writable overlay. The operator must be able to export evidence to separate persistent media before this can be considered a complete appliance workflow.
+The largest current product gap is completing evidence persistence across a live-system reboot. The backend can now mount selected removable media and atomically export a validated bundle, while dashboard destination selection and physical USB retention testing remain unfinished.
 
 ## How the system fits together
 
@@ -53,7 +54,7 @@ The backend runs as root because raw block access and firmware erase commands re
 | [Evidence and certificates](evidence-and-certificates.md) | Hash chains, persistence, signatures, JSON/PDF output, startup validation, and trust limitations. |
 | [HTTP and WebSocket API](api.md) | Endpoint contracts, example requests, responses, status codes, and event messages. |
 | [Live USB](live-usb.md) | ArchISO composition, build process, boot sequence, QEMU use, and physical-media checklist. |
-| [Testing](testing.md) | The 89 Rust tests, QEMU suites, what each layer proves, and what remains untested. |
+| [Testing](testing.md) | The 95 Rust tests, QEMU suites, what each layer proves, and what remains untested. |
 | [Roadmap](roadmap.md) | Remaining work ranked for a bootable-USB product and explicit out-of-scope work. |
 
 ## Terms used in these documents

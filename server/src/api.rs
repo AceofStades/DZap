@@ -8,7 +8,10 @@ use serde_json::json;
 
 use crate::AppState;
 use crate::core::{
-    certificate, drives, jobs::WipeJobStatus, predict, preflight, verification, wiper,
+    certificate::{self, SignedCertificate},
+    drives, evidence_export,
+    jobs::{WipeJob, WipeJobStatus},
+    predict, preflight, verification, wiper,
 };
 
 /// Helper to ensure all error responses are in a consistent JSON format.
@@ -382,6 +385,20 @@ pub async fn list_certificates_handler(State(state): State<AppState>) -> Respons
     }
 }
 
+pub async fn list_export_destinations_handler() -> Response {
+    match tokio::task::spawn_blocking(evidence_export::detect_export_destinations).await {
+        Ok(Ok(destinations)) => Json(destinations).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect evidence export destinations: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect evidence export destinations: {error}"),
+        ),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UnmountRequest {
     #[serde(alias = "Device")]
@@ -433,6 +450,139 @@ pub struct CertRequest {
     pub job_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct EvidenceExportRequest {
+    #[serde(rename = "jobId", alias = "job_id")]
+    pub job_id: String,
+    pub destination: evidence_export::ExportDestination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EvidenceMountRequest {
+    pub destination: evidence_export::ExportDestination,
+}
+
+fn load_or_issue_certificate(
+    state: &AppState,
+    job: &WipeJob,
+) -> Result<SignedCertificate, (StatusCode, String)> {
+    match state.certificates.get(&job.id) {
+        Ok(Some(certificate)) => {
+            if !certificate.verify_signature() || !certificate.matches_job(job) {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "Stored certificate does not match the wipe evidence".to_string(),
+                ));
+            }
+            Ok(certificate)
+        }
+        Ok(None) => {
+            let generated = certificate::generate_certificate_for_job(job).map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to generate certificate: {error}"),
+                )
+            })?;
+            state
+                .certificates
+                .save_if_absent(generated)
+                .map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to persist certificate: {error}"),
+                    )
+                })
+        }
+        Err(error) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to load certificate: {error}"),
+        )),
+    }
+}
+
+pub async fn export_evidence_handler(
+    State(state): State<AppState>,
+    body: Result<Json<EvidenceExportRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+
+    let job = match state.jobs.get(&request.job_id) {
+        Ok(Some(job)) => job,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Wipe job not found"),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to load wipe job: {error}"),
+            );
+        }
+    };
+    if job.status != WipeJobStatus::Verified || !job.verify_evidence() {
+        return error_response(
+            StatusCode::CONFLICT,
+            "Evidence export requires a successfully verified wipe job",
+        );
+    }
+
+    let certificate = match load_or_issue_certificate(&state, &job) {
+        Ok(certificate) => certificate,
+        Err((status, message)) => return error_response(status, &message),
+    };
+    let destination = request.destination;
+    match tokio::task::spawn_blocking(move || {
+        evidence_export::export_evidence(&job, &certificate, &destination)
+    })
+    .await
+    {
+        Ok(Ok(result)) => Json(result).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::CONFLICT,
+            &format!("Failed to export evidence: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to export evidence: {error}"),
+        ),
+    }
+}
+
+pub async fn mount_export_destination_handler(
+    body: Result<Json<EvidenceMountRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+
+    match tokio::task::spawn_blocking(move || {
+        evidence_export::mount_export_destination(&request.destination)
+    })
+    .await
+    {
+        Ok(Ok(destination)) => Json(destination).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::CONFLICT,
+            &format!("Failed to mount evidence destination: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to mount evidence destination: {error}"),
+        ),
+    }
+}
+
 /// Issues a certificate from server-owned evidence. Supports `?format=pdf`.
 pub async fn certificate_handler(
     State(state): State<AppState>,
@@ -472,42 +622,9 @@ pub async fn certificate_handler(
         );
     }
 
-    let signed_cert = match state.certificates.get(&req.job_id) {
-        Ok(Some(certificate)) => {
-            if !certificate.verify_signature() || !certificate.matches_job(&job) {
-                return error_response(
-                    StatusCode::CONFLICT,
-                    "Stored certificate does not match the wipe evidence",
-                );
-            }
-            certificate
-        }
-        Ok(None) => {
-            let generated = match certificate::generate_certificate_for_job(&job) {
-                Ok(certificate) => certificate,
-                Err(error) => {
-                    return error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to generate certificate: {error}"),
-                    );
-                }
-            };
-            match state.certificates.save_if_absent(generated) {
-                Ok(certificate) => certificate,
-                Err(error) => {
-                    return error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to persist certificate: {error}"),
-                    );
-                }
-            }
-        }
-        Err(error) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("Failed to load certificate: {error}"),
-            );
-        }
+    let signed_cert = match load_or_issue_certificate(&state, &job) {
+        Ok(certificate) => certificate,
+        Err((status, message)) => return error_response(status, &message),
     };
 
     // Check if user requested PDF format

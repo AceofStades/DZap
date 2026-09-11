@@ -56,6 +56,7 @@ This separation prevents the browser renderer from inheriting raw-disk privilege
 | `server/src/lib.rs` | Shared application state, Axum routes, CORS, allowed UI origins, and static frontend fallback. |
 | `server/src/api.rs` | HTTP/WebSocket handlers and the asynchronous wipe-to-verification orchestration. |
 | `server/src/core/drives.rs` | Linux block and Android discovery, topology inspection, drive classification, frozen-state probe, and safe unmounting. |
+| `server/src/core/evidence_export.rs` | Removable destination discovery/mounting, atomic evidence bundles, manifest hashing, and readback validation. |
 | `server/src/core/preflight.rs` | Read-only safety decisions and identity-bound authorization. |
 | `server/src/core/wiper.rs` | Method selection, reservations, overwrite loops, firmware-command execution, progress, pause, and abort controls. |
 | `server/src/core/ata.rs` | ATA capability parsing and safe `hdparm` argument construction. |
@@ -113,7 +114,7 @@ In production startup, both stores use the Linux configuration directory. With `
 
 Directories are set to mode `0700`; the key and JSON records are set to `0600`. State transitions are written to a temporary file, synced, atomically renamed, and followed by a directory sync.
 
-The live environment currently gives `/root` a volatile overlay. These paths survive backend restarts during one boot but not removal or reboot of the live USB. [Evidence persistence](roadmap.md#p0-persistent-evidence-export) is therefore the next appliance milestone.
+The live environment gives `/root` a volatile overlay. These paths survive backend restarts during one boot but not removal or reboot of the live USB. The evidence export API writes validated bundles to selected removable media; its dashboard workflow and physical USB qualification remain part of [the persistence milestone](roadmap.md#p0-persistent-evidence-export).
 
 ## Network boundary
 

@@ -60,6 +60,13 @@ pub(crate) fn reserve_device(device_path: &str) -> Result<WipeReservation, Strin
     })
 }
 
+pub(crate) fn device_is_reserved(device_path: &str) -> Result<bool, String> {
+    reserved_devices()
+        .lock()
+        .map(|devices| devices.contains(device_path))
+        .map_err(|_| "wipe reservation state is unavailable".to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct WipeProgress {
     #[serde(rename = "deviceId")]

@@ -104,6 +104,15 @@ pub fn build_router_with_state_and_frontend(
         .route("/api/wipe/pause", post(api::pause_wipe_handler))
         .route("/api/wipe/abort", post(api::abort_wipe_handler))
         .route("/api/certificates", get(api::list_certificates_handler))
+        .route(
+            "/api/evidence/destinations",
+            get(api::list_export_destinations_handler),
+        )
+        .route("/api/evidence/export", post(api::export_evidence_handler))
+        .route(
+            "/api/evidence/mount",
+            post(api::mount_export_destination_handler),
+        )
         .route("/api/certificate/generate", post(api::certificate_handler))
         .route("/api/certificate", post(api::certificate_handler))
         .route("/api/unmount", post(api::unmount_drive_handler))

@@ -12,9 +12,10 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/src/core/certificate_test.rs` | 8 | Complete certificate hashing, signature verification, job binding, JSON/PDF, store idempotence, tamper rejection, key permissions. |
 | `server/src/core/predict_test.rs` | 6 | SATA/NVMe SMART parsing, health status, feature tensor mapping, probability threshold. |
 | `server/src/core/drives_test.rs` | 5 | Drive mapping/classification, recursive topology, Android parsing, malformed discovery, ATA frozen parsing. |
+| `server/src/core/evidence_export_test.rs` | 4 | Removable destination filtering, bundle write/readback, idempotence, target exclusion, and tamper rejection. |
 | `server/src/api_test.rs` | 3 | Certificate handler uses verified server-owned jobs and rejects invalid states. |
 | `server/src/realtime_test.rs` | 2 | Hub broadcast behavior. |
-| `server/tests/api.rs` | 16 | Real HTTP/WS server, routes, invalid requests, origin rules, static frontend serving, job and certificate behavior. |
+| `server/tests/api.rs` | 18 | Real HTTP/WS server, routes, invalid requests, origin rules, static frontend serving, job, certificate, and export behavior. |
 | `server/tests/preflight.rs` | 10 | Mounted/system/dependency/identity decisions, method boundaries, HPA and DCO parsing. |
 | `server/tests/nvme.rs` | 5 | Controller paths, capability parsing, command flags, sanitize-log success/failure. |
 | `server/tests/jobs.rs` | 5 | Job lifecycle, persistence, restart failure, tamper detection, certificate/job startup matching. |
@@ -22,7 +23,7 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/tests/ata.rs` | 3 | Security capability parser and normal/enhanced command arguments. |
 | `server/tests/drives.rs` | 3 | Public drive shapes, nested topology, ArchISO boot-media protection. |
 
-Current total: **89 Rust tests**.
+Current total: **95 Rust tests**.
 
 ## Safety rule for automated tests
 
@@ -156,6 +157,7 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - Verification evidence must match method policy and approved identity.
 - Evidence persistence rejects tampering and interrupted state is failed on restart.
 - Certificates are signed, job-bound, idempotent, and available as JSON/PDF.
+- Evidence bundles are written atomically, read back, and rejected after tampering.
 - HTTP, WebSocket, origin policy, and static serving work through a real listener.
 - A real guest block device can pass the complete overwrite-to-certificate path.
 - The packaged live root boots, starts DZap, serves the UI, and protects its own media.
@@ -168,7 +170,7 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - Behavior through USB-to-SATA/NVMe bridges.
 - BIOS and UEFI boot across a documented hardware matrix.
 - Power-loss behavior during each sanitization method.
-- Persistent export across reboot/removal of the live media.
+- Dashboard-driven export and removal/reboot retention on physical USB media.
 - Secure Boot.
 - Frontend reconnection and long-running job recovery under browser restarts.
 

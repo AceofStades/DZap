@@ -128,7 +128,7 @@ The copied profile receives:
 | `iso/airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf` | tty1 autologin as `dzap` after backend/sysusers/tmpfiles. |
 | `iso/airootfs/etc/profile.d/dzap-kiosk.sh` | Starts X only for `dzap` on tty1 with no existing display. |
 | `iso/airootfs/usr/lib/sysusers.d/dzap.conf` | Creates the unprivileged kiosk account. |
-| `iso/airootfs/usr/lib/tmpfiles.d/dzap.conf` | Creates its volatile home directory. |
+| `iso/airootfs/usr/lib/tmpfiles.d/dzap.conf` | Creates the volatile kiosk home and root-owned evidence mount root. |
 | `iso/airootfs/usr/local/bin/dzap-kiosk` | Starts Openbox and Chromium after backend readiness. |
 
 The project intentionally does not vendor all ArchISO boot files. Copying the installed profile keeps the project close to ArchISO's current boot structure, though release reproducibility still requires recording or pinning that input.

@@ -25,6 +25,9 @@ Examples below use `localhost`, which reaches the same loopback service. All JSO
 | GET | `/api/certificates` | List signed certificates, newest first. |
 | POST | `/api/certificate` | Issue/return JSON, or PDF with `?format=pdf`. |
 | POST | `/api/certificate/generate` | Alias for JSON certificate generation. |
+| GET | `/api/evidence/destinations` | List eligible removable evidence volumes and their current mount state. |
+| POST | `/api/evidence/mount` | Mount one exactly revalidated destination with restricted options. |
+| POST | `/api/evidence/export` | Write and read back a verified evidence bundle. |
 | GET | `/ws` | Stream progress and terminal events. |
 
 Unknown non-API paths fall back to files in `DZAP_FRONTEND_DIR`.
@@ -327,6 +330,90 @@ Certificate status behavior:
 | `404 Not Found` | Job does not exist. |
 | `409 Conflict` | Job is not verified, evidence is invalid, or stored certificate disagrees with the job. |
 | `500 Internal Server Error` | Key, signing, persistence, or PDF generation failed. |
+
+## Persistent evidence export
+
+List removable partitions that use FAT32, exFAT, or ext4:
+
+```http
+GET /api/evidence/destinations
+```
+
+Representative response:
+
+```json
+[
+  {
+    "drivePath": "/dev/sdc",
+    "driveMajorMinor": "8:32",
+    "devicePath": "/dev/sdc1",
+    "deviceMajorMinor": "8:33",
+    "mountPath": null,
+    "model": "Evidence USB",
+    "serial": "EXPORT-SERIAL",
+    "transport": "usb",
+    "filesystem": "vfat",
+    "sizeBytes": "64021856256"
+  }
+]
+```
+
+The list excludes read-only devices, unsupported filesystems, internal non-removable drives, and any drive containing a protected system or `/run/archiso` mount. USB transport is accepted even when a bridge reports `RM=0`.
+
+An unmounted destination must be mounted explicitly. Send back the complete object returned by discovery:
+
+```http
+POST /api/evidence/mount
+Content-Type: application/json
+```
+
+```json
+{
+  "destination": {
+    "drivePath": "/dev/sdc",
+    "driveMajorMinor": "8:32",
+    "devicePath": "/dev/sdc1",
+    "deviceMajorMinor": "8:33",
+    "mountPath": null,
+    "model": "Evidence USB",
+    "serial": "EXPORT-SERIAL",
+    "transport": "usb",
+    "filesystem": "vfat",
+    "sizeBytes": "64021856256"
+  }
+}
+```
+
+The backend discovers the device again and requires an exact match. It refuses a device reserved by wipe or verification, then mounts it below `/run/dzap-evidence` with `nodev,nosuid,noexec`. FAT and exFAT also receive explicit root ownership and `umask=022`. The response is the refreshed destination with a non-null `mountPath`.
+
+Export a verified job by sending that refreshed destination:
+
+```http
+POST /api/evidence/export
+Content-Type: application/json
+```
+
+```json
+{
+  "jobId": "job-0123456789abcdef0123456789abcdef",
+  "destination": {
+    "drivePath": "/dev/sdc",
+    "driveMajorMinor": "8:32",
+    "devicePath": "/dev/sdc1",
+    "deviceMajorMinor": "8:33",
+    "mountPath": "/run/dzap-evidence/8-33",
+    "model": "Evidence USB",
+    "serial": "EXPORT-SERIAL",
+    "transport": "usb",
+    "filesystem": "vfat",
+    "sizeBytes": "64021856256"
+  }
+}
+```
+
+Success returns the bundle path, export timestamp, public-key fingerprint, destination identity, and `alreadyExisted`. Repeating the same export validates and returns the existing bundle. A changed or corrupted bundle is rejected rather than overwritten.
+
+The bundle is created at `DZap-Evidence/<job-id>/` and contains `job.json`, `certificate.json`, `certificate.pdf`, `public-key.pem`, and `manifest.json`. The manifest includes an RSA signature over its metadata and file hashes. `409 Conflict` covers stale destination identity, active reservations, unverified jobs, invalid existing bundles, and unavailable media. Unknown jobs return `404`; malformed requests return `400`.
 
 ## WebSocket
 
