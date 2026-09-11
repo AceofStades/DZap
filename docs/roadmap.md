@@ -20,7 +20,7 @@ The live image currently stores the signing key, wipe jobs, and certificates bel
 
 That means a verified wipe can succeed while its only durable evidence is lost. Evidence persistence is therefore the highest-priority product gap.
 
-Backend foundation now implemented: removable destination discovery, explicit restricted mounting, atomic bundle publication, manifest hashing, full readback validation, and idempotent retry. Still required to finish P0: dashboard selection/status, physical FAT32 and ext4 tests, safe-removal guidance, and the long-term signing-key decision.
+Software path now implemented: removable destination discovery, dashboard selection/status, explicit restricted mounting, atomic bundle publication, signed manifest hashing, full readback validation, idempotent retry, and safe removal. Still required to close P0: physical FAT32 and ext4 retention tests and the long-term signing-key decision.
 
 ### Required behavior
 

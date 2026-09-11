@@ -170,7 +170,7 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - Behavior through USB-to-SATA/NVMe bridges.
 - BIOS and UEFI boot across a documented hardware matrix.
 - Power-loss behavior during each sanitization method.
-- Dashboard-driven export and removal/reboot retention on physical USB media.
+- Export, safe removal, and reboot retention on physical FAT32, exFAT, and ext4 USB media.
 - Secure Boot.
 - Frontend reconnection and long-running job recovery under browser restarts.
 

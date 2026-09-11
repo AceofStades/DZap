@@ -240,6 +240,8 @@ For each test machine, record:
 
 At minimum, test one legacy BIOS machine, one UEFI machine, SATA through AHCI, native NVMe, a USB mass-storage bridge, and a system containing LVM or encrypted descendants.
 
+For persistent evidence testing, attach a second USB drive containing FAT32, exFAT, or ext4. In the Certificates view, select that destination, export a verified job, record the displayed bundle path and key fingerprint, and use **Safely remove USB**. Reattach the drive after reboot and confirm that all five bundle files remain readable. Independent post-reboot signature verification remains part of the offline-verifier qualification work.
+
 ## Current image limitations
 
 - The full `releng` package list makes the image larger and slower than necessary.

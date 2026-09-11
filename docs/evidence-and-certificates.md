@@ -228,7 +228,7 @@ Export is idempotent. If the final directory already exists, DZap validates it a
 
 The service sets `HOME=/root`, so the live system writes its key, jobs, and certificates under `/root/.config/DZap`. ArchISO provides a writable overlay, allowing state to survive backend restarts during the current boot.
 
-That overlay is volatile. Removing power or rebooting still loses the in-session key and stored records. The backend export path now preserves job JSON, signed JSON/PDF certificates, the public key, and a hash manifest on separate media, but the dashboard does not expose destination selection yet. Until the UI flow is complete and tested on removable media, operators must invoke the API directly and verify that export succeeded before shutdown.
+That overlay is volatile. Removing power or rebooting still loses the in-session key and stored records. The dashboard now lets the operator select removable media, export job JSON, signed JSON/PDF certificates, the public key, and a signed hash manifest, then safely unmount the destination. Until this path is tested on physical removable media, operators must verify the reported bundle path and successful unmount before shutdown.
 
 The current bundle records firmware-status hashes already present in `VerificationResult`; it does not preserve additional raw `hdparm` or `nvme` command output. A stable organizational signing identity and standalone offline verifier also remain release work.
 

@@ -22,7 +22,7 @@ DZap currently provides:
 - A hybrid BIOS/UEFI ArchISO image with automatic kiosk startup.
 - Unit, integration, destructive virtual-disk, and live-image boot tests.
 
-The largest current product gap is completing evidence persistence across a live-system reboot. The backend can now mount selected removable media and atomically export a validated bundle, while dashboard destination selection and physical USB retention testing remain unfinished.
+The software path for evidence persistence is now complete: the dashboard selects removable media, the backend mounts it with restricted options, exports an authenticated bundle, reads it back, and can safely unmount it. Physical USB retention testing and the long-term signing-key trust model remain release requirements.
 
 ## How the system fits together
 

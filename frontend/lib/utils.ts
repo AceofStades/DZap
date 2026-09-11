@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type {
+	EvidenceExportResult,
+	ExportDestination,
 	SignedCertificate,
 	StartWipeResponse,
 	WipeJobRecord,
@@ -123,7 +125,7 @@ export async function unmountDevice(devicePath: string) {
 		body: JSON.stringify({ device: devicePath }),
 	});
 	if (!response.ok) {
-		throw new Error("Failed to unmount device");
+		throw await apiResponseError(response, "Failed to unmount device.");
 	}
 	return response.json();
 }
@@ -184,4 +186,62 @@ export async function downloadCertificatePdf(jobId: string): Promise<Blob> {
 		throw new Error("Failed to download certificate PDF");
 	}
 	return response.blob();
+}
+
+async function apiResponseError(
+	response: Response,
+	fallback: string,
+): Promise<Error> {
+	const body = await response.json().catch(() => null);
+	return new Error(body?.error || fallback);
+}
+
+export async function getEvidenceDestinations(): Promise<ExportDestination[]> {
+	const response = await fetch(`${API_BASE_URL}/evidence/destinations`);
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			"Failed to discover evidence destinations.",
+		);
+	}
+	return response.json();
+}
+
+export async function mountEvidenceDestination(
+	destination: ExportDestination,
+): Promise<ExportDestination> {
+	const response = await fetch(`${API_BASE_URL}/evidence/mount`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ destination }),
+	});
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			"Failed to mount evidence destination.",
+		);
+	}
+	return response.json();
+}
+
+export async function exportEvidence(
+	jobId: string,
+	destination: ExportDestination,
+): Promise<EvidenceExportResult> {
+	const response = await fetch(`${API_BASE_URL}/evidence/export`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ jobId, destination }),
+	});
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			"Failed to export evidence bundle.",
+		);
+	}
+	return response.json();
 }

@@ -170,3 +170,25 @@ export interface SignedCertificate {
 	signature: string;
 	publicKey: string;
 }
+
+export interface ExportDestination {
+	drivePath: string;
+	driveMajorMinor: string;
+	devicePath: string;
+	deviceMajorMinor: string;
+	mountPath: string | null;
+	model: string;
+	serial: string;
+	transport: string;
+	filesystem: string;
+	sizeBytes: string;
+}
+
+export interface EvidenceExportResult {
+	jobId: string;
+	bundlePath: string;
+	exportedAt: string;
+	keyFingerprintSha256: string;
+	alreadyExisted: boolean;
+	destination: ExportDestination;
+}

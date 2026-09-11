@@ -73,7 +73,7 @@ The frontend is a Next.js App Router application exported as static files. It ha
 
 - **Devices** discovers drives, shows health and supported methods, runs preflight, and presents the destructive confirmation dialog.
 - **Progress** loads server-owned jobs, listens to WebSocket events, shows verification evidence, supports abort requests, and asks the backend to issue a certificate.
-- **Certificates** lists persisted signed certificates and exports JSON or backend-generated PDF files.
+- **Certificates** lists persisted signed certificates, exports individual JSON/PDF files, and writes complete authenticated bundles to selected removable media with a safe-unmount action.
 
 `frontend/lib/utils.ts` is the browser API client. `frontend/lib/types.ts` mirrors backend JSON structures. Reusable visual primitives live under `frontend/components/ui/`.
 
