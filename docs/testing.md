@@ -22,8 +22,9 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/tests/verification.rs` | 4 | Full readback success, mismatch, size mismatch, method policy. |
 | `server/tests/ata.rs` | 3 | Security capability parser and normal/enhanced command arguments. |
 | `server/tests/drives.rs` | 3 | Public drive shapes, nested topology, ArchISO boot-media protection. |
+| `server/src/bin/dzap-tui.rs` | 4 | Selection bounds, size formatting, terminal rendering, and backend contract compatibility. |
 
-Current total: **95 Rust tests**.
+Current total with the TUI feature: **99 Rust tests**.
 
 ## Safety rule for automated tests
 
@@ -43,6 +44,7 @@ Run:
 ```bash
 cd server
 cargo test
+cargo test --all-targets --features tui
 ```
 
 This validates both unit and integration tests. The integration suite starts the real Axum router on ephemeral loopback ports.
@@ -50,7 +52,7 @@ This validates both unit and integration tests. The integration suite starts the
 Strict linting:
 
 ```bash
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --features tui -- -D warnings
 ```
 
 Formatting:
@@ -72,7 +74,7 @@ npx tsc --noEmit
 
 The build must produce a static `out/index.html` and `_next` assets that the Rust fallback service can serve. The Rust API integration suite separately proves index and nested static asset delivery from a temporary frontend directory.
 
-The current Next configuration skips type and lint validation during `next build`, which is why `npx tsc --noEmit` is run separately. Removing those skips is planned cleanup.
+The production build runs Next.js compilation, ESLint, TypeScript validation, and static export. The explicit TypeScript command remains useful as a fast focused check.
 
 ## Destructive QEMU end-to-end test
 
@@ -134,7 +136,8 @@ For ordinary backend/frontend changes:
 ```bash
 cd server
 cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --all-targets --features tui
+cargo clippy --all-targets --features tui -- -D warnings
 cargo fmt --all -- --check
 cd ../frontend
 npm run build

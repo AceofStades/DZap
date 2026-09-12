@@ -40,6 +40,7 @@ echo "==> Building static Rust backend"
 cargo build \
     --locked \
     --release \
+    --features tui \
     --target "$TARGET" \
     --manifest-path "$REPO_ROOT/server/Cargo.toml"
 
@@ -55,6 +56,9 @@ LC_ALL=C sort -u -o "$PROFILE_DIR/packages.x86_64" "$PROFILE_DIR/packages.x86_64
 install -D -m 0755 \
     "$REPO_ROOT/server/target/$TARGET/release/server" \
     "$PROFILE_DIR/airootfs/usr/local/bin/dzap-server"
+install -D -m 0755 \
+    "$REPO_ROOT/server/target/$TARGET/release/dzap-tui" \
+    "$PROFILE_DIR/airootfs/usr/local/bin/dzap-tui"
 install -d -m 0755 "$PROFILE_DIR/airootfs/opt/dzap/frontend"
 cp -a "$REPO_ROOT/frontend/out/." "$PROFILE_DIR/airootfs/opt/dzap/frontend/"
 
@@ -71,6 +75,7 @@ sed -i \
 
 cat >> "$PROFILE_DIR/profiledef.sh" <<'EOF'
 file_permissions["/usr/local/bin/dzap-server"]="0:0:755"
+file_permissions["/usr/local/bin/dzap-tui"]="0:0:755"
 file_permissions["/usr/local/bin/dzap-kiosk"]="0:0:755"
 EOF
 

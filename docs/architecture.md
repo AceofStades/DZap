@@ -13,6 +13,7 @@ sequenceDiagram
     participant S as systemd
     participant B as dzap-backend (root)
     participant G as getty on tty1
+    participant T as DZap TUI on tty2
     participant X as Xorg/Openbox (dzap)
     participant C as Chromium (dzap)
     participant D as Linux block devices
@@ -21,10 +22,12 @@ sequenceDiagram
     B->>B: load/generate signing key and validate stores
     B->>B: bind 127.0.0.1:8080
     S->>G: autologin dzap
+    S->>T: autologin dzap on tty2
     G->>X: startx /usr/local/bin/dzap-kiosk
     X->>B: poll HTTP readiness
     X->>C: exec Chromium kiosk
     C->>B: API requests and WebSocket
+    T->>B: device, method, and preflight requests
     B->>D: discover, authorize, wipe, verify
 ```
 
@@ -48,11 +51,14 @@ The kiosk script disables display blanking, starts Openbox, waits up to 60 secon
 
 This separation prevents the browser renderer from inheriting raw-disk privileges. The browser asks the loopback backend to perform privileged operations through narrow API endpoints.
 
+tty2 runs the `dzap-tui` client as the same unprivileged user. It lists storage, supported methods, and backend preflight checks without exposing wipe authorization. The TUI is a resource and usability prototype; tty1 remains the complete operator interface.
+
 ## Backend structure
 
 | Path | Responsibility |
 | --- | --- |
 | `server/src/main.rs` | Process startup, root check, signing-key initialization, persistent state construction, and loopback listener. |
+| `server/src/bin/dzap-tui.rs` | Read-only terminal device browser and preflight client. |
 | `server/src/lib.rs` | Shared application state, Axum routes, CORS, allowed UI origins, and static frontend fallback. |
 | `server/src/api.rs` | HTTP/WebSocket handlers and the asynchronous wipe-to-verification orchestration. |
 | `server/src/core/drives.rs` | Linux block and Android discovery, topology inspection, drive classification, frozen-state probe, and safe unmounting. |
@@ -137,7 +143,7 @@ These maps are process-local. Backend restart recovery marks persisted nontermin
 
 ## Build-time composition
 
-The source tree does not copy ArchISO's full `releng` profile into version control. `scripts/build-live-iso.sh` copies the installed profile at build time, overlays DZap files, merges package names, builds the static backend and frontend, sets explicit executable permissions, and calls `mkarchiso`.
+The source tree does not copy ArchISO's full `releng` profile into version control. `scripts/build-live-iso.sh` copies the installed profile at build time, overlays DZap files, merges package names, builds the static backend, Rust TUI, and frontend, sets explicit executable permissions, and calls `mkarchiso`.
 
 This avoids carrying a stale fork of ArchISO boot files, but it also means the base image changes with the host's installed ArchISO profile and current package repositories. Pinning and recording this input is part of release hardening.
 

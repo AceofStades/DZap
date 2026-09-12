@@ -58,15 +58,16 @@ npm --prefix frontend run build
 
 Next.js is configured for static export, producing `frontend/out`. The backend can serve this directory without a Node.js process in the live system.
 
-### 2. Build the backend
+### 2. Build the Rust binaries
 
 ```text
 cargo build --locked --release \
+  --features tui \
   --target x86_64-unknown-linux-musl \
   --manifest-path server/Cargo.toml
 ```
 
-`--locked` requires `Cargo.lock` to agree with the manifest. The musl target produces a static PIE binary so the live image does not need a matching Rust runtime or glibc ABI for the backend.
+`--locked` requires `Cargo.lock` to agree with the manifest. The musl target produces static PIE binaries for the backend and TUI, so the live image does not need matching Rust runtime libraries for either process.
 
 ### 3. Prepare a fresh profile
 
@@ -100,13 +101,19 @@ The backend is installed at:
 /usr/local/bin/dzap-server
 ```
 
+The read-only terminal client is installed at:
+
+```text
+/usr/local/bin/dzap-tui
+```
+
 The static dashboard is copied to:
 
 ```text
 /opt/dzap/frontend
 ```
 
-The backend service is enabled in `multi-user.target`. The profile explicitly sets mode `0755` for `dzap-server` and `dzap-kiosk`; relying only on source file modes caused the first QEMU-built image to fail with systemd status `203/EXEC`, which the live smoke test caught.
+The backend service is enabled in `multi-user.target`. The profile explicitly sets mode `0755` for `dzap-server`, `dzap-tui`, and `dzap-kiosk`; relying only on source file modes caused the first QEMU-built image to fail with systemd status `203/EXEC`, which the live smoke test caught.
 
 ### 5. Customize and build
 
@@ -126,7 +133,9 @@ The copied profile receives:
 | `iso/packages.x86_64` | DZap-specific runtime packages. |
 | `iso/airootfs/etc/systemd/system/dzap-backend.service` | Root backend startup and restart policy. |
 | `iso/airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf` | tty1 autologin as `dzap` after backend/sysusers/tmpfiles. |
-| `iso/airootfs/etc/profile.d/dzap-kiosk.sh` | Starts X only for `dzap` on tty1 with no existing display. |
+| `iso/airootfs/etc/systemd/system/getty@tty2.service.d/autologin.conf` | tty2 autologin as `dzap` after the backend starts. |
+| `iso/airootfs/etc/systemd/system/getty.target.wants/getty@tty2.service` | Starts the second virtual console for the TUI. |
+| `iso/airootfs/etc/profile.d/dzap-kiosk.sh` | Starts X on tty1 or the Rust TUI on tty2 for `dzap`. |
 | `iso/airootfs/usr/lib/sysusers.d/dzap.conf` | Creates the unprivileged kiosk account. |
 | `iso/airootfs/usr/lib/tmpfiles.d/dzap.conf` | Creates the volatile kiosk home and root-owned evidence mount root. |
 | `iso/airootfs/usr/local/bin/dzap-kiosk` | Starts Openbox and Chromium after backend readiness. |
@@ -145,6 +154,7 @@ The project intentionally does not vendor all ArchISO boot files. Copying the in
 8. The profile script runs rootless Xorg on tty1.
 9. Openbox starts, display power saving is disabled, and the kiosk polls `/` for up to 60 seconds.
 10. Chromium opens `http://127.0.0.1:8080/` in kiosk mode.
+11. tty2 logs in as `dzap` and starts the read-only Rust TUI against the same backend.
 
 If the backend never becomes ready, the kiosk script exits with an error instead of opening a disconnected UI.
 
@@ -168,8 +178,9 @@ make smoke-iso
 8. Confirms the backend service is active.
 9. Confirms the packaged frontend returns HTML.
 10. Confirms `/run/dzap` belongs to `dzap`.
-11. Queries `/api/drives` and requires `/dev/vda`, the live image, to be both mounted and marked as the OS drive.
-12. Powers off the guest.
+11. Confirms the packaged TUI is executable, tty2 is active, and the TUI process is running.
+12. Queries `/api/drives` and requires `/dev/vda`, the live image, to be both mounted and marked as the OS drive.
+13. Powers off the guest.
 
 This test exercises the packaged root filesystem and startup service. Direct kernel boot bypasses the firmware bootloader menu, so BIOS/UEFI image metadata and physical boot must also be tested.
 
@@ -182,6 +193,14 @@ make run-iso
 ```
 
 The launcher selects the newest image, creates a 4 GiB qcow2 disk at `build/archiso/test-disk.qcow2`, uses KVM when accessible, and opens the graphical boot with standard VGA.
+
+Use these QEMU keys after the image reaches the dashboard:
+
+- `Ctrl+Alt+F2`: switch to the Rust TUI.
+- `Ctrl+Alt+F1`: return to the Chromium dashboard.
+- `Ctrl+Alt+G`: release QEMU's keyboard and mouse grab.
+
+The TUI uses arrow keys to select a device and method, `Enter` to run read-only preflight, `R` to refresh, and `Q` to quit. Quitting returns to the tty2 login, which automatically starts it again.
 
 You may deliberately wipe the displayed QEMU scratch disk. Verify the model, size, and path in the UI first. The qcow2 file can be recreated when a clean test target is needed.
 
@@ -251,3 +270,4 @@ For persistent evidence testing, attach a second USB drive containing FAT32, exF
 - The live image has not yet passed a published physical-hardware matrix.
 - Frontend dependency audit findings remain to be resolved.
 - The optional ONNX health model/runtime is not packaged.
+- The Rust TUI is read-only; wipe authorization, progress, certificates, and evidence export remain in the graphical dashboard.

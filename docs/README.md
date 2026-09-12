@@ -19,6 +19,7 @@ DZap currently provides:
 - Backend-owned, hash-manifested evidence bundles for removable FAT32, exFAT, or ext4 media.
 - HTTP and WebSocket APIs bound to localhost.
 - A static Next.js dashboard served by the Rust backend.
+- A read-only Rust terminal interface for device inspection and safety preflight on tty2.
 - A hybrid BIOS/UEFI ArchISO image with automatic kiosk startup.
 - Unit, integration, destructive virtual-disk, and live-image boot tests.
 
@@ -32,9 +33,11 @@ flowchart TD
     archiso --> systemd[systemd]
     systemd --> backend[Root Rust backend on 127.0.0.1:8080]
     systemd --> login[Autologin dzap on tty1]
+    systemd --> tui[DZap Rust TUI on tty2]
     login --> xorg[Xorg and Openbox]
     xorg --> chromium[Chromium kiosk]
     chromium -->|HTTP and WebSocket| backend
+    tui -->|HTTP| backend
     backend --> topology[lsblk and Linux block topology]
     backend --> tools[hdparm, nvme-cli, smartctl]
     backend --> devices[Target block devices]
@@ -54,7 +57,8 @@ The backend runs as root because raw block access and firmware erase commands re
 | [Evidence and certificates](evidence-and-certificates.md) | Hash chains, persistence, signatures, JSON/PDF output, startup validation, and trust limitations. |
 | [HTTP and WebSocket API](api.md) | Endpoint contracts, example requests, responses, status codes, and event messages. |
 | [Live USB](live-usb.md) | ArchISO composition, build process, boot sequence, QEMU use, and physical-media checklist. |
-| [Testing](testing.md) | The 95 Rust tests, QEMU suites, what each layer proves, and what remains untested. |
+| [Interface options](interfaces.md) | Measured browser/TUI resource tradeoffs and the native-GUI decision. |
+| [Testing](testing.md) | The 99 Rust tests, QEMU suites, what each layer proves, and what remains untested. |
 | [Roadmap](roadmap.md) | Remaining work ranked for a bootable-USB product and explicit out-of-scope work. |
 
 ## Terms used in these documents

@@ -40,6 +40,8 @@ make run-iso
 
 The smoke test boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk.
 
+Inside the interactive QEMU window, press `Ctrl+Alt+F2` to open the read-only Rust TUI and `Ctrl+Alt+F1` to return to the graphical dashboard. QEMU uses `Ctrl+Alt+G` to release captured keyboard and mouse input. Rebuild with `make iso` after changing packaged source.
+
 Write the hybrid ISO to a USB drive with a trusted imaging tool. Verify the destination carefully because imaging replaces the entire selected device.
 
 ## Develop locally
@@ -68,7 +70,8 @@ Run the local checks:
 ```bash
 cd server
 cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --all-targets --features tui
+cargo clippy --all-targets --features tui -- -D warnings
 cd ../frontend
 npm run build
 npx tsc --noEmit
