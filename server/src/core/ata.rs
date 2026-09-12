@@ -24,8 +24,8 @@ impl AtaEraseMode {
 
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::Normal => "Purge: ATA Secure Erase",
-            Self::Enhanced => "Purge: ATA Enhanced Secure Erase",
+            Self::Normal => "ATA Secure Erase",
+            Self::Enhanced => "ATA Enhanced Secure Erase",
         }
     }
 

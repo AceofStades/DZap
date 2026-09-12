@@ -9,8 +9,8 @@ pub enum DriveType {
     Ssd,
     Nvme,
     Usb,
-    /// Mirrors Go's UNKN constant; kept for NIST method mapping of
-    /// unknown/removable media even though detection never yields it.
+    /// Mirrors Go's UNKN constant for unknown/removable media even though
+    /// detection never yields it.
     #[allow(dead_code)]
     Unknown,
 }

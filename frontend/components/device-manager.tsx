@@ -7,7 +7,6 @@ import {
 	Zap,
 	Settings,
 	Play,
-	Square,
 	HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Progress } from "@/components/ui/progress";
 import {
 	Select,
 	SelectContent,
@@ -58,10 +56,8 @@ export function DeviceManager({
 	selectedDevice,
 	onDeviceUpdate,
 }: DeviceManagerProps) {
-	const [wipeMethod, setWipeMethod] = useState("overwrite_1_pass");
-	const [showAdvanced, setShowAdvanced] = useState(false);
+	const [wipeMethod, setWipeMethod] = useState("");
 	const [showConfirmation, setShowConfirmation] = useState(false);
-	const [showStopConfirmation, setShowStopConfirmation] = useState(false);
 	const [isPreflighting, setIsPreflighting] = useState(false);
 	const [preflightError, setPreflightError] = useState<string | null>(null);
 	const [approvedPlan, setApprovedPlan] = useState<WipePlan | null>(null);
@@ -91,12 +87,11 @@ export function DeviceManager({
 				try {
 					const methods = await getWipeMethods(device.id);
 					setAvailableWipeMethods(methods);
-					if (methods.length > 0) {
-						setWipeMethod(methods[0].id);
-					}
+					setWipeMethod(methods.at(0)?.id ?? "");
 				} catch (error) {
 					console.error("Failed to fetch wipe methods:", error);
 					setAvailableWipeMethods([]);
+					setWipeMethod("");
 				}
 			}
 		};
@@ -122,7 +117,7 @@ export function DeviceManager({
 	});
 
 	const handleStartWipe = async () => {
-		if (!device || device.status !== "ready") return;
+		if (!device || device.status !== "ready" || !wipeMethod) return;
 
 		setIsPreflighting(true);
 		setPreflightError(null);
@@ -193,16 +188,6 @@ export function DeviceManager({
 			console.error("Failed to unmount device:", error);
 			// TODO: Show an error toast/message
 		}
-	};
-
-	const handleStopWipe = () => {
-		setShowStopConfirmation(true);
-	};
-
-	const handleConfirmStopWipe = () => {
-		console.log("Stopping wipe process for device:", device?.id);
-		setShowStopConfirmation(false);
-		// In real app, this would call backend API to stop wiping
 	};
 
 	const formatBytes = (bytes: string, decimals = 2) => {
@@ -277,9 +262,9 @@ export function DeviceManager({
 					<Alert className="component-border component-border-hover">
 						<AlertTriangle className="h-4 w-4" />
 						<AlertDescription>
-							SSD detected. Crypto-erase or NVMe sanitize is
-							recommended for optimal data destruction on
-							solid-state drives.
+							SSD detected. Prefer a supported drive firmware method when
+							available because host writes cannot address every region
+							managed by a flash translation layer.
 						</AlertDescription>
 					</Alert>
 				)}
@@ -505,7 +490,7 @@ export function DeviceManager({
 						<CardDescription>
 							{isOSDrive
 								? "Wiping the OS drive is not permitted."
-								: "Configure data destruction method and parameters"}
+								: "Choose a method supported by the freshly detected device capabilities."}
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="space-y-6">
@@ -515,12 +500,16 @@ export function DeviceManager({
 									Wipe Method
 								</label>
 								<Select
-									value={wipeMethod}
+									value={wipeMethod || undefined}
 									onValueChange={setWipeMethod}
-									disabled={isWiping || isOSDrive}
+									disabled={
+										isWiping ||
+										isOSDrive ||
+										availableWipeMethods.length === 0
+									}
 								>
 									<SelectTrigger>
-										<SelectValue />
+										<SelectValue placeholder="No supported method" />
 									</SelectTrigger>
 									<SelectContent>
 										{availableWipeMethods.map((method) => (
@@ -536,105 +525,18 @@ export function DeviceManager({
 							</div>
 
 							<div className="space-y-2">
-								<label className="text-sm font-medium">
+								<p className="text-sm font-medium">
 									Verification
-								</label>
-								<Select
-									defaultValue="basic"
-									disabled={isWiping || isOSDrive}
-								>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="none">
-											No Verification
-										</SelectItem>
-										<SelectItem value="basic">
-											Basic Verification
-										</SelectItem>
-										<SelectItem value="full">
-											Full Read Verification
-										</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-						</div>
-
-						<div className="flex items-center space-x-2">
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setShowAdvanced(!showAdvanced)}
-								disabled={isWiping || isOSDrive}
-							>
-								<Settings className="h-4 w-4 mr-2" />
-								{showAdvanced ? "Hide" : "Show"} Advanced
-								Options
-							</Button>
-						</div>
-
-						{showAdvanced && (
-							<div className="space-y-4 p-4 bg-muted/50 rounded-lg">
-								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-									<div className="space-y-2">
-										<label className="text-sm font-medium">
-											Block Size
-										</label>
-										<Select
-											defaultValue="1mb"
-											disabled={isWiping || isOSDrive}
-										>
-											<SelectTrigger>
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="64kb">
-													64 KB
-												</SelectItem>
-												<SelectItem value="1mb">
-													1 MB
-												</SelectItem>
-												<SelectItem value="4mb">
-													4 MB
-												</SelectItem>
-												<SelectItem value="16mb">
-													16 MB
-												</SelectItem>
-											</SelectContent>
-										</Select>
-									</div>
-
-									<div className="space-y-2">
-										<label className="text-sm font-medium">
-											Thread Count
-										</label>
-										<Select
-											defaultValue="auto"
-											disabled={isWiping || isOSDrive}
-										>
-											<SelectTrigger>
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="1">
-													1 Thread
-												</SelectItem>
-												<SelectItem value="2">
-													2 Threads
-												</SelectItem>
-												<SelectItem value="4">
-													4 Threads
-												</SelectItem>
-												<SelectItem value="auto">
-													Auto
-												</SelectItem>
-											</SelectContent>
-										</Select>
-									</div>
+								</p>
+								<div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+									Required and method-specific
 								</div>
+								<p className="text-xs text-muted-foreground">
+									DZap chooses the verification policy from the authorized
+									method; it cannot be disabled by the dashboard.
+								</p>
 							</div>
-						)}
+						</div>
 
 						<Separator />
 
@@ -653,7 +555,12 @@ export function DeviceManager({
 
 							<Button
 								size="lg"
-								disabled={!isReady || isOSDrive || isPreflighting}
+								disabled={
+									!isReady ||
+									isOSDrive ||
+									isPreflighting ||
+									!wipeMethod
+								}
 								className="bg-primary hover:bg-primary/90"
 								onClick={handleStartWipe}
 							>
@@ -666,17 +573,6 @@ export function DeviceManager({
 										? "Wipe Completed"
 										: "Start Wipe"}
 							</Button>
-
-							{!isReady && !isOSDrive && (
-								<Button
-									variant="outline"
-									size="lg"
-									disabled={isWiping}
-								>
-									<Shield className="h-4 w-4 mr-2" />
-									Export Device Info
-								</Button>
-							)}
 						</div>
 					</CardContent>
 				</Card>
@@ -688,18 +584,6 @@ export function DeviceManager({
 				onConfirm={handleConfirmWipe}
 				device={device as StorageDevice}
 				wipeMethod={wipeMethod}
-			/>
-
-			<ConfirmationModal
-				isOpen={showStopConfirmation}
-				onClose={() => setShowStopConfirmation(false)}
-				onConfirm={handleConfirmStopWipe}
-				device={device as StorageDevice}
-				wipeMethod="Stop Wipe Operation"
-				title="Stop Wipe Operation"
-				description="Wiped data will not be recovered now, do you still want to stop?"
-				confirmText="Yes, Stop Wipe"
-				isDestructive={true}
 			/>
 		</>
 	);

@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type {
+	DeviceInventory,
+	DriveHealth,
 	EvidenceExportResult,
 	ExportDestination,
 	SignedCertificate,
@@ -8,6 +10,7 @@ import type {
 	WipeJobRecord,
 	WipePlan,
 	WipeRequest,
+	WipeMethod,
 } from "@/lib/types";
 
 export function cn(...inputs: ClassValue[]) {
@@ -35,7 +38,7 @@ export function getWebSocketUrl(): string {
 	return url.toString();
 }
 
-export async function getDevices() {
+export async function getDevices(): Promise<DeviceInventory> {
 	const response = await fetch(apiUrl("/drives"));
 	if (!response.ok) {
 		throw new Error("Failed to fetch devices");
@@ -43,7 +46,7 @@ export async function getDevices() {
 	return response.json();
 }
 
-export async function getDriveHealth(deviceName: string) {
+export async function getDriveHealth(deviceName: string): Promise<DriveHealth> {
 	const drive = deviceName.replace("/dev/", "");
 	const response = await fetch(apiUrl(`/drive/${drive}/health`));
 	if (!response.ok) {
@@ -94,7 +97,7 @@ export async function startWipe(
 	return response.json();
 }
 
-export async function getWipeMethods(deviceId: string) {
+export async function getWipeMethods(deviceId: string): Promise<WipeMethod[]> {
 	// The ID for storage devices is `/dev/sda`, so we remove `/dev/`.
 	// For mobile, it's the serial, which is what we want.
 	const identifier = deviceId.startsWith("/dev/")

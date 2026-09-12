@@ -97,8 +97,8 @@ Response:
 [
   {
     "id": "overwrite_1_pass",
-    "name": "Clear: 1-Pass Overwrite",
-    "description": "A single pass of a fixed pattern, per NIST SP 800-88r1 guidelines."
+    "name": "1-Pass Overwrite",
+    "description": "Writes 0x00 across the full host-visible device."
   }
 ]
 ```
@@ -433,7 +433,7 @@ Overwrite progress resembles:
   "deviceId": "/dev/sdb",
   "deviceModel": "Example Disk",
   "method": "overwrite_1_pass",
-  "methodName": "Clear: 1-Pass Overwrite",
+  "methodName": "1-Pass Overwrite",
   "status": "Pass 1/1",
   "progress": 42.5,
   "currentPass": 1,

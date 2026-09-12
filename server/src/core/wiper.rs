@@ -138,21 +138,21 @@ pub struct WipeMethod {
 
 pub(crate) fn wipe_method_name(method_id: &str) -> &'static str {
     match method_id {
-        "nvme_format" => "Purge: NVMe Format",
-        "nvme_sanitize_crypto" => "Purge: NVMe Sanitize (Crypto Erase)",
-        "nvme_sanitize_block" => "Purge: NVMe Sanitize (Block Erase)",
-        "nvme_sanitize_overwrite" => "Purge: NVMe Sanitize (Overwrite)",
-        "overwrite_1_pass" => "Clear: 1-Pass Overwrite",
-        "sata_secure_erase" => "Purge: ATA Secure Erase",
-        "sata_secure_erase_enhanced" => "Purge: ATA Enhanced Secure Erase",
-        "overwrite_3_pass" => "Purge: 3-Pass Overwrite",
-        "overwrite_2_pass" => "Clear: 2-Pass Overwrite",
-        "android_factory_reset" => "Clear: Factory Reset",
+        "nvme_format" => "NVMe Format",
+        "nvme_sanitize_crypto" => "NVMe Sanitize (Crypto Erase)",
+        "nvme_sanitize_block" => "NVMe Sanitize (Block Erase)",
+        "nvme_sanitize_overwrite" => "NVMe Sanitize (Overwrite)",
+        "overwrite_1_pass" => "1-Pass Overwrite",
+        "sata_secure_erase" => "ATA Secure Erase",
+        "sata_secure_erase_enhanced" => "ATA Enhanced Secure Erase",
+        "overwrite_3_pass" => "3-Pass Pattern Overwrite",
+        "overwrite_2_pass" => "2-Pass Complement Overwrite",
+        "android_factory_reset" => "Factory Reset",
         _ => "Unknown",
     }
 }
 
-/// NIST-compliant methods for standard storage.
+/// Methods supported by the detected storage type and controller capabilities.
 pub fn get_wipe_methods_for_drive(drive: &Drive) -> Vec<WipeMethod> {
     let m = |id: &str, name: &str, desc: &str| WipeMethod {
         id: id.to_string(),
@@ -178,13 +178,13 @@ pub fn get_wipe_methods_for_drive(drive: &Drive) -> Vec<WipeMethod> {
             methods.extend([
                 m(
                     "nvme_format",
-                    "Purge: NVMe Format",
+                    "NVMe Format",
                     "Uses the drive's built-in, high-speed firmware command (NVM Express Format).",
                 ),
                 m(
                     "overwrite_1_pass",
-                    "Clear: Overwrite",
-                    "Not fully effective for flash media due to wear-leveling and over-provisioning.",
+                    "1-Pass Overwrite",
+                    "Writes 0x00 across the host-visible device. Flash translation layers may retain inaccessible data.",
                 ),
             ]);
             methods
@@ -192,19 +192,19 @@ pub fn get_wipe_methods_for_drive(drive: &Drive) -> Vec<WipeMethod> {
         DriveType::Ssd => {
             let overwrite = m(
                 "overwrite_1_pass",
-                "Clear: Overwrite",
-                "Not fully effective for flash media due to wear-leveling and over-provisioning.",
+                "1-Pass Overwrite",
+                "Writes 0x00 across the host-visible device. Flash translation layers may retain inaccessible data.",
             );
             if matches!(drive.transport.as_str(), "ata" | "ide" | "sata") {
                 vec![
                     m(
                         "sata_secure_erase_enhanced",
-                        "Purge: ATA Enhanced Secure Erase",
+                        "ATA Enhanced Secure Erase",
                         "Uses the drive's advertised enhanced ATA Security Erase operation.",
                     ),
                     m(
                         "sata_secure_erase",
-                        "Purge: ATA Secure Erase",
+                        "ATA Secure Erase",
                         "Uses the drive's ATA Security Erase operation.",
                     ),
                     overwrite,
@@ -216,19 +216,19 @@ pub fn get_wipe_methods_for_drive(drive: &Drive) -> Vec<WipeMethod> {
         DriveType::Hdd => vec![
             m(
                 "overwrite_1_pass",
-                "Clear: 1-Pass Overwrite",
-                "A single pass of a fixed pattern, per NIST SP 800-88r1 guidelines.",
+                "1-Pass Overwrite",
+                "Writes 0x00 across the full host-visible device.",
             ),
             m(
                 "overwrite_3_pass",
-                "Purge: 3-Pass Overwrite",
-                "Three passes of a pseudorandom pattern, an optional NIST Purge method.",
+                "3-Pass Pattern Overwrite",
+                "Writes 0x00, 0xFF, then 0x55 across the full host-visible device.",
             ),
         ],
         DriveType::Usb | DriveType::Unknown => vec![m(
             "overwrite_2_pass",
-            "Clear: 2-Pass Overwrite",
-            "A pattern and its complement, per NIST guidelines for USB/removable media.",
+            "2-Pass Complement Overwrite",
+            "Writes 0x55, then its complement 0xAA, across the full host-visible device.",
         )],
     }
 }
@@ -349,7 +349,7 @@ where
     F: FnOnce(&str) -> Result<(), String>,
 {
     let _ = progress.send(format!(
-        "Executing Android Factory Reset (NIST Clear) on device {serial}..."
+        "Requesting Android recovery mode on device {serial}..."
     ));
     reboot_to_recovery(serial)?;
     let _ = progress.send(

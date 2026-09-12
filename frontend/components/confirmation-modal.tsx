@@ -25,10 +25,6 @@ interface ConfirmationModalProps {
 	onConfirm: () => void;
 	device: Device | null;
 	wipeMethod: string;
-	title?: string; // Added optional title prop
-	description?: string; // Added optional description prop
-	confirmText?: string; // Added optional confirm button text
-	isDestructive?: boolean;
 }
 
 export function ConfirmationModal({
@@ -37,10 +33,6 @@ export function ConfirmationModal({
 	onConfirm,
 	device,
 	wipeMethod,
-	title = "Confirm Data Destruction", // Default title with override option
-	description = "This action will permanently destroy all data on the selected device. This operation cannot be undone.", // Default description with override option
-	confirmText = "Confirm Wipe", // Default confirm text with override option
-	isDestructive = true,
 }: ConfirmationModalProps) {
 	const [confirmationText, setConfirmationText] = useState("");
 	const [hasAcceptedWarning, setHasAcceptedWarning] = useState(false);
@@ -90,9 +82,12 @@ export function ConfirmationModal({
 				<DialogHeader>
 					<DialogTitle className="flex items-center space-x-2 text-destructive">
 						<AlertTriangle className="h-6 w-6" />
-						<span>{title}</span>
+						<span>Confirm Data Destruction</span>
 					</DialogTitle>
-					<DialogDescription>{description}</DialogDescription>
+					<DialogDescription>
+						This action permanently destroys data on the selected device.
+						It cannot be undone.
+					</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-6">
@@ -263,7 +258,7 @@ export function ConfirmationModal({
 						className="bg-destructive hover:bg-destructive/90"
 					>
 						<Trash2 className="h-4 w-4 mr-2" />
-						{confirmText}
+						Confirm Wipe
 					</Button>
 				</DialogFooter>
 			</DialogContent>

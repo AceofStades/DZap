@@ -72,23 +72,23 @@ function isHostOverwrite(method: string) {
 function methodLabel(method: string) {
 	switch (method) {
 		case "nvme_format":
-			return "Purge: NVMe Format";
+			return "NVMe Format";
 		case "nvme_sanitize_crypto":
-			return "Purge: NVMe Sanitize (Crypto Erase)";
+			return "NVMe Sanitize (Crypto Erase)";
 		case "nvme_sanitize_block":
-			return "Purge: NVMe Sanitize (Block Erase)";
+			return "NVMe Sanitize (Block Erase)";
 		case "nvme_sanitize_overwrite":
-			return "Purge: NVMe Sanitize (Overwrite)";
+			return "NVMe Sanitize (Overwrite)";
 		case "sata_secure_erase":
-			return "Purge: ATA Secure Erase";
+			return "ATA Secure Erase";
 		case "sata_secure_erase_enhanced":
-			return "Purge: ATA Enhanced Secure Erase";
+			return "ATA Enhanced Secure Erase";
 		case "overwrite_1_pass":
-			return "Clear: 1-Pass Overwrite";
+			return "1-Pass Overwrite";
 		case "overwrite_2_pass":
-			return "Clear: 2-Pass Overwrite";
+			return "2-Pass Complement Overwrite";
 		case "overwrite_3_pass":
-			return "Purge: 3-Pass Overwrite";
+			return "3-Pass Pattern Overwrite";
 		default:
 			return method;
 	}

@@ -7,7 +7,6 @@ import { Sidebar } from "@/components/sidebar";
 import { DeviceManager } from "@/components/device-manager";
 import { ProgressTracker } from "@/components/progress-tracker";
 import { CertificateManager } from "@/components/certificate-manager";
-import { ThemeProvider } from "@/components/theme-provider";
 import type { Device, StorageDevice, MobileDevice } from "@/lib/types";
 import { getDevices } from "@/lib/utils";
 
@@ -39,7 +38,7 @@ export default function Dashboard() {
 			const { storage, mobile } = await getDevices();
 
 			const storageWithCategory: StorageDevice[] = (storage || []).map(
-				(d: any) => ({
+				(d) => ({
 					...d,
 					id: d.name,
 					deviceCategory: "storage",
@@ -48,7 +47,7 @@ export default function Dashboard() {
 			);
 
 			const mobileWithCategory: MobileDevice[] = (mobile || []).map(
-				(d: any) => ({
+				(d) => ({
 					...d,
 					id: d.serial,
 					deviceCategory: "mobile",
@@ -92,33 +91,31 @@ export default function Dashboard() {
 	}, []);
 
 	return (
-		<ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-			<div className="flex flex-col h-screen bg-background text-foreground">
-				<Header
+		<div className="flex h-screen flex-col bg-background text-foreground">
+			<Header
+				activeTab={activeTab}
+				onTabChange={setActiveTab}
+				selectedDeviceName={selectedDevice?.name}
+			/>
+			<div className="flex flex-1 overflow-hidden">
+				<Sidebar
+					devices={allDevices}
+					selectedDevice={selectedDevice}
+					onSelectDevice={setSelectedDevice}
 					activeTab={activeTab}
-					onTabChange={setActiveTab}
-					selectedDeviceName={selectedDevice?.name}
+					onRefresh={fetchDevices}
 				/>
-				<div className="flex flex-1 overflow-hidden">
-					<Sidebar
-						devices={allDevices}
-						selectedDevice={selectedDevice}
-						onSelectDevice={setSelectedDevice}
-						activeTab={activeTab}
-						onRefresh={fetchDevices}
-					/>
-					<main className="flex-1 overflow-y-auto p-6">
-						{activeTab === "devices" && (
-							<DeviceManager
-								selectedDevice={selectedDevice}
-								onDeviceUpdate={fetchDevices}
-							/>
-						)}
-						{activeTab === "progress" && <ProgressTracker />}
-						{activeTab === "certificates" && <CertificateManager />}
-					</main>
-				</div>
+				<main className="flex-1 overflow-y-auto p-6">
+					{activeTab === "devices" && (
+						<DeviceManager
+							selectedDevice={selectedDevice}
+							onDeviceUpdate={fetchDevices}
+						/>
+					)}
+					{activeTab === "progress" && <ProgressTracker />}
+					{activeTab === "certificates" && <CertificateManager />}
+				</main>
 			</div>
-		</ThemeProvider>
+		</div>
 	);
 }

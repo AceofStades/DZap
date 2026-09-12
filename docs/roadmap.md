@@ -117,12 +117,13 @@ The dashboard works for the tested flow, but several pieces still reflect earlie
 - The WebSocket reconnects with exponential delays capped at ten seconds and reloads authoritative records after every successful connection.
 - HTTP and WebSocket endpoints follow the current page origin. A build-time override supports the separate development server.
 - Abort text distinguishes host overwrites from firmware operations that may continue inside a controller after the local command is stopped. Pause remains API-only.
+- Product metadata and navigation identify the dashboard as DZap Live USB.
+- Unsupported verification and tuning controls have been removed. Verification remains mandatory and method-specific.
+- Production builds now run TypeScript and lint checks instead of suppressing their failures.
+- Sanitization method labels describe the command or byte pattern actually executed without assigning a compliance class.
 
 ### Planned work
 
-- Remove stale claims such as DoD/Gutmann branding unless a named method is implemented and verified exactly as claimed.
-- Replace leftover product names and desktop-application metadata with the DZap live-appliance identity.
-- Re-enable TypeScript and lint failures in the production build, then fix every resulting error instead of suppressing the gate.
 - Audit and update frontend dependencies until known production-impacting advisories are resolved or documented with a bounded exception.
 
 The backend remains the authority for device identity, supported methods, preflight approval, job state, and certificate contents. UI fixes must preserve that ownership.

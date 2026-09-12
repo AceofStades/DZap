@@ -43,6 +43,20 @@ export interface MobileDevice extends BaseDevice {
 // A single, unified type for any device in the app
 export type Device = StorageDevice | MobileDevice;
 
+export type DiscoveredStorageDevice = Omit<
+	StorageDevice,
+	"id" | "deviceCategory" | "status"
+>;
+export type DiscoveredMobileDevice = Omit<
+	MobileDevice,
+	"id" | "deviceCategory" | "status"
+>;
+
+export interface DeviceInventory {
+	storage: DiscoveredStorageDevice[] | null;
+	mobile: DiscoveredMobileDevice[] | null;
+}
+
 // --- Other types ---
 
 export interface SmartAttribute {

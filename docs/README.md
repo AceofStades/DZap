@@ -73,6 +73,6 @@ The backend runs as root because raw block access and firmware erase commands re
 
 ## Claims and limits
 
-The method names use `Clear` and `Purge` language to describe the intended sanitization class. The repository is not itself a laboratory certification, a regulatory approval, or proof that every controller implements its firmware commands correctly. Real hardware validation, documented device coverage, operational procedures, and evidence retention are still required before making formal compliance claims.
+Method names describe the command or overwrite pattern DZap actually executes. DZap does not assign a sanitization class or make a compliance claim from the command name alone. A verified job proves what this build requested and checked; it does not prove that every controller implements firmware commands correctly. Real hardware validation, documented device coverage, operational procedures, and evidence retention are required before making formal compliance claims.
 
 The current Android discovery code remains in the Rust backend, but no mobile wipe method is exposed because DZap cannot yet prove a completed factory reset. The live-USB product target refers to the platform DZap runs on; it does not turn an unverifiable mobile reset into a supported sanitization method.
