@@ -4,7 +4,7 @@
 
 DZap is designed to boot independently of the installed operating system. This matters because an installed OS normally mounts and actively uses the same storage that an erasure tool needs to inspect or destroy. The live USB provides a known runtime, a controlled root process, and an unprivileged local UI without installing DZap on the machine being serviced.
 
-The current target is x86-64 with both legacy BIOS and UEFI boot entries. The live image is based on ArchISO. The backend is statically linked against musl; the graphical environment and hardware tools come from Arch packages.
+The current target is x86-64 with both legacy BIOS and UEFI boot entries. Both firmware paths select DZap immediately without presenting ArchISO's installer menu. The live image is based on ArchISO. The backend is statically linked against musl; the graphical environment and hardware tools come from Arch packages.
 
 ## Runtime processes
 

@@ -29,7 +29,7 @@ Build the hybrid BIOS/UEFI ISO:
 make iso
 ```
 
-The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, adds the DZap packages and startup files, exports the frontend, and builds a static Rust backend.
+The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, replaces its installer entries with immediate DZap boot entries, adds the DZap packages and startup files, exports the frontend, and builds static Rust binaries.
 
 Test the image with a dedicated virtual disk:
 

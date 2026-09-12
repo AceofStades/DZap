@@ -50,6 +50,20 @@ mkdir -p "$PROFILE_DIR" "$OUTPUT_DIR"
 cp -a "$BASE_PROFILE/." "$PROFILE_DIR/"
 cp -a "$REPO_ROOT/iso/airootfs/." "$PROFILE_DIR/airootfs/"
 
+install -m 0644 \
+    "$REPO_ROOT/iso/boot/syslinux/archiso_sys.cfg" \
+    "$PROFILE_DIR/syslinux/archiso_sys.cfg"
+install -m 0644 \
+    "$REPO_ROOT/iso/boot/syslinux/archiso_sys-linux.cfg" \
+    "$PROFILE_DIR/syslinux/archiso_sys-linux.cfg"
+rm -f "$PROFILE_DIR/efiboot/loader/entries/"*.conf
+install -m 0644 \
+    "$REPO_ROOT/iso/boot/efiboot/loader/loader.conf" \
+    "$PROFILE_DIR/efiboot/loader/loader.conf"
+install -m 0644 \
+    "$REPO_ROOT/iso/boot/efiboot/loader/entries/01-dzap.conf" \
+    "$PROFILE_DIR/efiboot/loader/entries/01-dzap.conf"
+
 cat "$REPO_ROOT/iso/packages.x86_64" >> "$PROFILE_DIR/packages.x86_64"
 LC_ALL=C sort -u -o "$PROFILE_DIR/packages.x86_64" "$PROFILE_DIR/packages.x86_64"
 

@@ -123,6 +123,10 @@ The copied profile receives:
 - Label `DZAP_LIVE_<YYYYMM>`.
 - Publisher `DZap Project`.
 - Application `DZap Secure Wipe Live USB`.
+- A BIOS entry named `DZap Secure Wipe`, selected after SYSLINUX's minimum nonzero timeout without displaying a prompt or menu.
+- A UEFI entry named `DZap Secure Wipe`, selected immediately by systemd-boot without showing its menu by default.
+
+The builder removes the copied UEFI installer, speech, and memory-test entries before installing the DZap entry. The source-controlled BIOS configuration also omits ArchISO's installer menu and maintenance entries. On UEFI systems, holding a key during firmware handoff can still request systemd-boot's menu for diagnosis, but the normal path proceeds directly into DZap.
 
 `mkarchiso -v -r` then creates the hybrid image in `out/`. The output name includes the build date.
 
@@ -130,6 +134,10 @@ The copied profile receives:
 
 | Path | Purpose |
 | --- | --- |
+| `iso/boot/syslinux/archiso_sys.cfg` | Selects the DZap BIOS entry automatically without a boot prompt. |
+| `iso/boot/syslinux/archiso_sys-linux.cfg` | Defines the DZap BIOS kernel and initramfs entry. |
+| `iso/boot/efiboot/loader/loader.conf` | Selects the DZap UEFI entry immediately without disabling diagnostic boot-option editing. |
+| `iso/boot/efiboot/loader/entries/01-dzap.conf` | Defines the DZap UEFI kernel and initramfs entry. |
 | `iso/packages.x86_64` | DZap-specific runtime packages. |
 | `iso/airootfs/etc/systemd/system/dzap-backend.service` | Root backend startup and restart policy. |
 | `iso/airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf` | tty1 autologin as `dzap` after backend/sysusers/tmpfiles. |
@@ -144,7 +152,7 @@ The project intentionally does not vendor all ArchISO boot files. Copying the in
 
 ## Boot sequence
 
-1. BIOS or UEFI loads the corresponding boot entry.
+1. BIOS or UEFI selects the DZap entry immediately without showing the Arch installer menu.
 2. The ArchISO initramfs locates the image and mounts it below `/run/archiso`.
 3. The compressed root filesystem receives a writable temporary overlay.
 4. systemd creates the `dzap` account and `/run/dzap`.
@@ -168,19 +176,20 @@ make smoke-iso
 
 `scripts/smoke-live-iso.py` selects the newest `out/dzap-*.iso` unless given an explicit path. It:
 
-1. Reads the generated SYSLINUX configuration to obtain the ArchISO search UUID.
-2. Extracts the ISO's own kernel and initramfs to a temporary directory.
-3. Creates a 256 MiB throwaway raw disk.
-4. Direct-boots the kernel in QEMU with a serial console.
-5. Attaches the ISO read-only as a virtio disk, mimicking live media, and attaches the scratch disk separately.
-6. Logs into the serial console as root.
-7. Waits for the packaged backend.
-8. Confirms the backend service is active.
-9. Confirms the packaged frontend returns HTML.
-10. Confirms `/run/dzap` belongs to `dzap`.
-11. Confirms the packaged TUI is executable, tty2 is active, and the TUI process is running.
-12. Queries `/api/drives` and requires `/dev/vda`, the live image, to be both mounted and marked as the OS drive.
-13. Powers off the guest.
+1. Confirms the generated BIOS and UEFI configurations select DZap immediately and contain no Arch installer entry.
+2. Reads the generated SYSLINUX configuration to obtain the ArchISO search UUID.
+3. Extracts the ISO's own kernel and initramfs to a temporary directory.
+4. Creates a 256 MiB throwaway raw disk.
+5. Direct-boots the kernel in QEMU with a serial console.
+6. Attaches the ISO read-only as a virtio disk, mimicking live media, and attaches the scratch disk separately.
+7. Logs into the serial console as root.
+8. Waits for the packaged backend.
+9. Confirms the backend service is active.
+10. Confirms the packaged frontend returns HTML.
+11. Confirms `/run/dzap` belongs to `dzap`.
+12. Confirms the packaged TUI is executable, tty2 is active, and the TUI process is running.
+13. Queries `/api/drives` and requires `/dev/vda`, the live image, to be both mounted and marked as the OS drive.
+14. Powers off the guest.
 
 This test exercises the packaged root filesystem and startup service. Direct kernel boot bypasses the firmware bootloader menu, so BIOS/UEFI image metadata and physical boot must also be tested.
 

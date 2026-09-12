@@ -114,7 +114,7 @@ make iso
 make smoke-iso
 ```
 
-The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the live image is protected as the OS drive when attached as a disk.
+The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the BIOS and UEFI configurations select DZap immediately without an Arch installer entry, and that the live image is protected as the OS drive when attached as a disk.
 
 It creates only a temporary 256 MiB raw scratch disk and does not invoke a wipe. Its focus is product boot and safety initialization.
 
