@@ -37,7 +37,7 @@ Controls are visible in the footer:
 | `R` | Refresh devices and capabilities. |
 | `Q` or `Esc` | Exit. |
 
-Inside the live image, tty1 remains the complete Chromium kiosk. `Ctrl+Alt+F2` opens the TUI on tty2; `Ctrl+Alt+F1` returns to the kiosk. Both clients use the same root backend while running as the unprivileged `dzap` user.
+Inside the live image, tty1 remains the complete Chromium kiosk and tty2 runs the TUI. In QEMU, use its monitor to avoid the host intercepting the switch: press `Ctrl+Alt+2`, enter `sendkey ctrl-alt-f2` or `sendkey ctrl-alt-f1`, then press `Ctrl+Alt+1` to return to the guest display. Both clients use the same root backend while running as the unprivileged `dzap` user.
 
 For local development, start the backend first and then run:
 

@@ -194,11 +194,13 @@ make run-iso
 
 The launcher selects the newest image, creates a 4 GiB qcow2 disk at `build/archiso/test-disk.qcow2`, uses KVM when accessible, and opens the graphical boot with standard VGA.
 
-Use these QEMU keys after the image reaches the dashboard:
+If your host does not reserve guest tty shortcuts, `Ctrl+Alt+F2` switches to the Rust TUI and `Ctrl+Alt+F1` returns to the Chromium dashboard. Arch and other Linux hosts commonly intercept those combinations, so the reliable QEMU sequence is:
 
-- `Ctrl+Alt+F2`: switch to the Rust TUI.
-- `Ctrl+Alt+F1`: return to the Chromium dashboard.
-- `Ctrl+Alt+G`: release QEMU's keyboard and mouse grab.
+1. Press `Ctrl+Alt+2` to open QEMU's monitor console.
+2. Enter `sendkey ctrl-alt-f2` for the TUI or `sendkey ctrl-alt-f1` for the kiosk.
+3. Press `Ctrl+Alt+1` to return to the guest display.
+
+Use `Ctrl+Alt+G` to release QEMU's keyboard and mouse grab.
 
 The TUI uses arrow keys to select a device and method, `Enter` to run read-only preflight, `R` to refresh, and `Q` to quit. Quitting returns to the tty2 login, which automatically starts it again.
 

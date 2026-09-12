@@ -40,7 +40,7 @@ make run-iso
 
 The smoke test boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk.
 
-Inside the interactive QEMU window, press `Ctrl+Alt+F2` to open the read-only Rust TUI and `Ctrl+Alt+F1` to return to the graphical dashboard. QEMU uses `Ctrl+Alt+G` to release captured keyboard and mouse input. Rebuild with `make iso` after changing packaged source.
+Inside the interactive QEMU window, guest tty2 contains the read-only Rust TUI and tty1 contains the graphical dashboard. If the host intercepts `Ctrl+Alt+F1/F2`, press `Ctrl+Alt+2` to open the QEMU monitor, enter `sendkey ctrl-alt-f2` or `sendkey ctrl-alt-f1`, then press `Ctrl+Alt+1` to return to the guest display. QEMU uses `Ctrl+Alt+G` to release captured keyboard and mouse input. Rebuild with `make iso` after changing packaged source.
 
 Write the hybrid ISO to a USB drive with a trusted imaging tool. Verify the destination carefully because imaging replaces the entire selected device.
 
