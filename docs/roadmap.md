@@ -171,7 +171,7 @@ The following work is not part of the current product plan:
 - cloud accounts or mandatory network services;
 - Android sanitization without a device-specific, verifiable erasure design.
 
-Old source code or metadata related to those directions can be removed once it is confirmed that the live-image build and documentation no longer reference it.
+The obsolete Electron sources, root Node packaging manifests, and duplicate frontend package-manager lockfile have been removed. Their history remains available in Git without competing with the supported live-image build.
 
 ## Release definition of done
 

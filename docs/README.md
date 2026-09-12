@@ -2,7 +2,7 @@
 
 These documents describe the Rust-based DZap implementation as it exists after the first bootable live-USB milestone. They explain what the system does, why its safety checks exist, what has been tested, and which gaps remain.
 
-The product scope is now an **x86-64 bootable USB appliance**. DZap does not need Electron, a native Windows application, a native macOS application, or an installed Linux desktop application. The live environment boots its own Linux system, starts the privileged Rust backend, and opens the local dashboard in an unprivileged Chromium kiosk.
+The product scope is an **x86-64 bootable USB appliance**. The repository contains no native desktop packaging path. The live environment boots its own Linux system, starts the privileged Rust backend, and opens the local dashboard in an unprivileged Chromium kiosk.
 
 ## Current capability snapshot
 

@@ -122,4 +122,4 @@ The first verified image was approximately 1.8 GiB because it inherited the comp
 
 ## Current direction
 
-All new deployment work should serve the live-USB appliance. Native desktop packaging is legacy scope. The next milestone is persistent evidence export, followed by physical hardware qualification, image reduction, UI recovery improvements, and release hardening.
+All deployment work serves the live-USB appliance. The obsolete Electron sources and root Node packaging manifests were removed after the Rust and live-image paths became authoritative. Older commits retain the native desktop experiments for archaeology. The next milestones are physical hardware qualification, image reduction, recovery improvements, and release hardening.
