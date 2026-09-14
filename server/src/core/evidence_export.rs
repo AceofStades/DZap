@@ -264,7 +264,7 @@ pub fn export_evidence(
 
     if wiper::device_is_reserved(&destination.drive_path)? {
         return Err(format!(
-            "export destination {} is reserved by an active wipe or verification",
+            "export destination {} is reserved by another storage operation",
             destination.drive_path
         ));
     }
@@ -292,7 +292,7 @@ pub fn mount_export_destination(
     }
     if wiper::device_is_reserved(&destination.drive_path)? {
         return Err(format!(
-            "export destination {} is reserved by an active wipe or verification",
+            "export destination {} is reserved by another storage operation",
             destination.drive_path
         ));
     }

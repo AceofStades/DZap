@@ -11,7 +11,7 @@ use crate::core::{
     certificate::{self, SignedCertificate},
     drives, evidence_export,
     jobs::{WipeJob, WipeJobStatus},
-    predict, preflight, verification, wiper,
+    predict, preflight, recovery, verification, wiper,
 };
 
 /// Helper to ensure all error responses are in a consistent JSON format.
@@ -260,6 +260,35 @@ pub async fn preflight_wipe_handler(
         Err(e) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("Failed to run wipe preflight: {e}"),
+        ),
+    }
+}
+
+pub async fn assess_recovery_handler(
+    body: Result<
+        Json<recovery::RecoveryAssessmentRequest>,
+        axum::extract::rejection::JsonRejection,
+    >,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+
+    match tokio::task::spawn_blocking(move || recovery::assess_recovery(&request)).await {
+        Ok(Ok(assessment)) => Json(assessment).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to assess recovery source: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to assess recovery source: {error}"),
         ),
     }
 }

@@ -31,13 +31,13 @@ fn reserved_devices() -> &'static Mutex<HashSet<String>> {
     RESERVED_DEVICES.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-/// An API-level reservation that prevents overlapping wipe jobs for one device.
-/// It is held until sanitization and verification have both finished.
-pub(crate) struct WipeReservation {
+/// An API-level reservation that prevents conflicting operations on one device.
+/// Wipes hold it through verification; read-only assessments hold it while probing.
+pub(crate) struct DeviceReservation {
     device_path: String,
 }
 
-impl Drop for WipeReservation {
+impl Drop for DeviceReservation {
     fn drop(&mut self) {
         reserved_devices()
             .lock()
@@ -46,16 +46,16 @@ impl Drop for WipeReservation {
     }
 }
 
-pub(crate) fn reserve_device(device_path: &str) -> Result<WipeReservation, String> {
+pub(crate) fn reserve_device(device_path: &str) -> Result<DeviceReservation, String> {
     let mut devices = reserved_devices()
         .lock()
         .map_err(|_| "wipe reservation state is unavailable".to_string())?;
     if !devices.insert(device_path.to_string()) {
         return Err(format!(
-            "a wipe or verification is already active for device {device_path}"
+            "another storage operation is already active for device {device_path}"
         ));
     }
-    Ok(WipeReservation {
+    Ok(DeviceReservation {
         device_path: device_path.to_string(),
     })
 }

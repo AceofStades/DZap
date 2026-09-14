@@ -103,6 +103,7 @@ pub fn build_router_with_state_and_frontend(
         .route("/api/wipe/jobs/{id}", get(api::get_wipe_job_handler))
         .route("/api/wipe/pause", post(api::pause_wipe_handler))
         .route("/api/wipe/abort", post(api::abort_wipe_handler))
+        .route("/api/recovery/assess", post(api::assess_recovery_handler))
         .route("/api/certificates", get(api::list_certificates_handler))
         .route(
             "/api/evidence/destinations",
