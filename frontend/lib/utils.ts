@@ -6,6 +6,9 @@ import type {
 	EvidenceExportResult,
 	ExportDestination,
 	RecoveryAssessment,
+	RecoveryDestination,
+	RecoveryImagePlan,
+	DeviceIdentity,
 	SignedCertificate,
 	StartWipeResponse,
 	WipeJobRecord,
@@ -70,6 +73,66 @@ export async function assessRecovery(
 		throw await apiResponseError(
 			response,
 			"Failed to assess the recovery source.",
+		);
+	}
+	return response.json();
+}
+
+export async function getRecoveryDestinations(
+	sourceDevicePath: string,
+): Promise<RecoveryDestination[]> {
+	const query = new URLSearchParams({ sourceDevicePath });
+	const response = await fetch(apiUrl(`/recovery/destinations?${query}`));
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			"Failed to discover recovery destinations.",
+		);
+	}
+	return response.json();
+}
+
+export async function mountRecoveryDestination(
+	sourceDevicePath: string,
+	expectedSourceIdentity: DeviceIdentity,
+	destination: RecoveryDestination,
+): Promise<RecoveryDestination> {
+	const response = await fetch(apiUrl("/recovery/destinations/mount"), {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			sourceDevicePath,
+			expectedSourceIdentity,
+			destination,
+		}),
+	});
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			"Failed to mount the recovery destination.",
+		);
+	}
+	return response.json();
+}
+
+export async function planRecoveryImage(
+	sourceDevicePath: string,
+	expectedSourceIdentity: DeviceIdentity,
+	destination: RecoveryDestination,
+): Promise<RecoveryImagePlan> {
+	const response = await fetch(apiUrl("/recovery/plan"), {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			sourceDevicePath,
+			expectedSourceIdentity,
+			destination,
+		}),
+	});
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			"Failed to build the recovery image plan.",
 		);
 	}
 	return response.json();

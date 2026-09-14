@@ -24,6 +24,7 @@ import type {
 	StorageDevice,
 } from "@/lib/types";
 import { assessRecovery } from "@/lib/utils";
+import { RecoveryImagePlanner } from "@/components/recovery-image-plan";
 
 interface RecoveryAssessmentProps {
 	device: StorageDevice;
@@ -218,6 +219,10 @@ export function RecoveryAssessmentPanel({
 								))}
 							</ol>
 						</div>
+
+						{assessment.decision !== "blocked" && assessment.identity && (
+							<RecoveryImagePlanner assessment={assessment} />
+						)}
 					</div>
 				)}
 			</CardContent>

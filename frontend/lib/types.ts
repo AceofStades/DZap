@@ -159,6 +159,38 @@ export interface RecoveryAssessment {
 	recommendations: string[];
 }
 
+export interface RecoveryDestination {
+	drivePath: string;
+	devicePath: string;
+	deviceMajorMinor: string;
+	mountPath: string | null;
+	filesystem: string;
+	sizeBytes: string;
+	driveIdentity: DeviceIdentity;
+	filesystemSizeBytes: string | null;
+	availableBytes: string | null;
+	readOnly: boolean | null;
+	capacityError: string | null;
+}
+
+export interface RecoveryPlanCheck {
+	code: string;
+	status: "passed" | "blocked";
+	message: string;
+}
+
+export interface RecoveryImagePlan {
+	decision: "ready" | "blocked";
+	sourceDevicePath: string;
+	sourceIdentity: DeviceIdentity | null;
+	destination: RecoveryDestination | null;
+	imageSizeBytes: string;
+	reserveBytes: string;
+	requiredBytes: string;
+	outputDirectory: string | null;
+	checks: RecoveryPlanCheck[];
+}
+
 export interface PreflightCheck {
 	code: string;
 	status: "passed" | "blocked";
