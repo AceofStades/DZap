@@ -15,6 +15,9 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/src/core/evidence_export_test.rs` | 4 | Removable destination filtering, bundle write/readback, idempotence, target exclusion, and tamper rejection. |
 | `server/src/core/recovery_test.rs` | 6 | Signature/encryption parsing, SMART damage indicators, conservative sparse blank classification, recommendations, and protected-source blocking. |
 | `server/src/core/recovery_plan_test.rs` | 6 | Destination filtering/capacity, dual identity binding, source quiescence, filesystem limits, and free-space blocking. |
+| `server/src/core/recovery_jobs_test.rs` | 7 | Persistent lifecycle, restart/disconnection recovery, evidence hashing, immutable artifact binding, tamper rejection, and symlink-root rejection. |
+| `server/src/core/recovery_imaging_test.rs` | 5 | ddrescue map parsing, safe sparse arguments, success/failure transitions, and duplicate worker controls. |
+| `server/src/core/recovery_extract_test.rs` | 7 | Stable volume identifiers, TestDisk/PhotoRec/cryptsetup arguments, hashed diagnostics, safe copy/manifests, and cancellation. |
 | `server/src/api_test.rs` | 3 | Certificate handler uses verified server-owned jobs and rejects invalid states. |
 | `server/src/realtime_test.rs` | 2 | Hub broadcast behavior. |
 | `server/tests/api.rs` | 18 | Real HTTP/WS server, routes, invalid requests, origin rules, static frontend serving, job, certificate, and export behavior. |
@@ -24,10 +27,10 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/tests/verification.rs` | 4 | Full readback success, mismatch, size mismatch, method policy. |
 | `server/tests/ata.rs` | 3 | Security capability parser and normal/enhanced command arguments. |
 | `server/tests/drives.rs` | 3 | Public drive shapes, nested topology, ArchISO boot-media protection. |
-| `server/tests/recovery.rs` | 5 | Recovery assessment and image-plan HTTP shape, missing-source blocking, required destination query, and malformed requests. |
+| `server/tests/recovery.rs` | 10 | Recovery assessment, planning, job control, image inspection, analysis, extraction routes, malformed input, and blocked/unknown jobs. |
 | `server/src/bin/dzap-tui.rs` | 4 | Selection bounds, size formatting, terminal rendering, and backend contract compatibility. |
 
-Current total with the TUI feature: **116 Rust tests**.
+Current total with the TUI feature: **140 Rust tests**.
 
 ## Safety rule for automated tests
 
@@ -39,7 +42,7 @@ No ordinary Rust test points at a real block device.
 - Recovery tests use synthetic signatures, SMART data, device identities, capacity, and temporary regular files; they never plan against or sample a real block device.
 - Firmware command tests validate generated arguments and parsed status rather than sending commands.
 
-The one test that really wipes a block device runs inside QEMU and targets a disposable qcow2 disk.
+The tests that really wipe, image, mount, and recover block devices run inside QEMU and target disposable qcow2 disks.
 
 ## Rust unit and integration suite
 
@@ -92,23 +95,22 @@ The harness:
 
 1. Builds the musl backend.
 2. Downloads/caches an Alpine virtual ISO under `/tmp/dzap-e2e`.
-3. Creates a new 64 MiB scratch qcow2 disk.
+3. Creates a new 64 MiB virtio source disk and a 256 MiB USB-backed recovery destination.
 4. Boots Alpine with a serial console.
 5. Transfers the backend and guest test script through QEMU user networking.
 6. Starts the backend as guest root.
 7. Confirms `/api/drives` and method discovery.
-8. Fills `/dev/vda` with random bytes.
-9. Runs recovery assessment and proves it reports non-blank content without changing the disk hash.
-10. Runs read-only wipe preflight and extracts its identity.
-11. Starts `overwrite_1_pass` with that approved identity.
-12. Reads the full virtual disk back against 64 MiB of zeroes.
-13. Waits for a `verified` server job with full-readback evidence.
-14. Generates and validates JSON certificate fields.
-15. Generates a PDF and checks its `%PDF-1.4` header.
+8. Creates an ext4 filesystem on `/dev/vda`, writes known files, and proves assessment does not change the source hash.
+9. Starts a real `ddrescue` job through the API, waits for image completion, and proves the source hash still matches.
+10. Runs TestDisk analysis, discovers image volumes, copies the filesystem, validates recovered content, and verifies the manifest digest.
+11. Runs PhotoRec against the same completed image as a separate explicit recovery attempt.
+12. Recreates the source as LUKS, images it, unlocks the image read-only, recovers known content, and proves the secret is absent from both job records.
+13. Fills the destination and disconnects the source in turn, proving both capacity and source-presence checks block unsafe starts.
+14. Wipes `/dev/vda` through the API, verifies the full device against zeroes, reassesses it as likely blank, and validates JSON/PDF evidence.
 
 The host disk is never passed through to the VM. The only destructive path is `/dev/vda` inside the guest, backed by `/tmp/dzap-e2e/scratch.qcow2`.
 
-This test proves that the actual Rust overwrite, API orchestration, verification, evidence, and certificate pipeline work together on a Linux block device.
+This test proves that the actual Rust recovery, overwrite, API orchestration, verification, evidence, and certificate paths work together on Linux block devices. The degraded-media unit test uses a controlled fake `ddrescue` process and map file; physical bad-sector behavior remains a hardware qualification task.
 
 ## Live-image smoke test
 
@@ -119,7 +121,7 @@ make iso
 make smoke-iso
 ```
 
-The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the BIOS and UEFI configurations select DZap immediately without an Arch installer entry, that the live image is protected as the OS drive when attached as a disk, and that recovery assessment refuses to probe that protected source.
+The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the BIOS and UEFI configurations select DZap immediately without an Arch installer entry, requires `ddrescue`, TestDisk/PhotoRec, and `cryptsetup` inside the guest, checks that the live image is protected as the OS drive when attached as a disk, and requires recovery assessment to refuse that protected source.
 
 It creates only a temporary 256 MiB raw scratch disk and does not invoke a wipe. Its focus is product boot and safety initialization.
 

@@ -20,7 +20,8 @@ DZap currently provides:
 - HTTP and WebSocket APIs bound to localhost.
 - A static Next.js dashboard served by the Rust backend.
 - A read-only recovery assessment for signatures, encryption, media damage indicators, and sparse content classification.
-- Identity-bound recovery destination selection with mount, free-space, and image-file checks.
+- Identity-bound destination selection and resumable ddrescue imaging with persistent progress.
+- Read-only image inspection, encrypted-volume access, filesystem copy, PhotoRec carving, and recovered-file hash manifests.
 - A read-only Rust terminal interface for device inspection and safety preflight on tty2.
 - A hybrid BIOS/UEFI ArchISO image with automatic kiosk startup.
 - Unit, integration, destructive virtual-disk, and live-image boot tests.
@@ -61,7 +62,7 @@ The backend runs as root because raw block access and firmware erase commands re
 | [HTTP and WebSocket API](api.md) | Endpoint contracts, example requests, responses, status codes, and event messages. |
 | [Live USB](live-usb.md) | ArchISO composition, build process, boot sequence, QEMU use, and physical-media checklist. |
 | [Interface options](interfaces.md) | Measured browser/TUI resource tradeoffs and the native-GUI decision. |
-| [Testing](testing.md) | The 116 Rust tests, QEMU suites, what each layer proves, and what remains untested. |
+| [Testing](testing.md) | The 140 Rust tests, QEMU suites, what each layer proves, and what remains untested. |
 | [Roadmap](roadmap.md) | Remaining work ranked for a bootable-USB product and explicit out-of-scope work. |
 
 ## Terms used in these documents
@@ -70,7 +71,9 @@ The backend runs as root because raw block access and firmware erase commands re
 
 **Recovery assessment** is a read-only inspection of one recovery source. It reports recognized storage, encryption, damage indicators, and sparse content evidence without authorizing a recovery command.
 
-**Recovery image plan** binds the assessed source to a separate destination identity and verifies mount mode, filesystem limits, and free capacity. A ready plan still starts no recovery command.
+**Recovery image plan** binds the assessed source to a separate destination identity and verifies mount mode, filesystem limits, and free capacity. Starting a recovery job repeats those checks under reservations before ddrescue runs.
+
+**Recovery result** is one filesystem-copy or PhotoRec attempt performed against the completed image. Its output directory, counts, and per-file manifest digest are bound to the persistent job evidence.
 
 **Authorization preflight** is the second evaluation performed by `POST /api/wipe`. It requires the caller to send back the identity returned by the earlier preflight. A mismatch blocks the wipe.
 

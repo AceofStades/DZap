@@ -1,63 +1,155 @@
 # Data recovery
 
-DZap's data-recovery workflow begins with a read-only assessment and an identity-bound image plan. The current implementation does not create an image, copy, repair, decrypt, reconstruct, or carve files yet. It gathers enough evidence to choose a safer recovery path without changing the source drive.
+DZap uses an image-first recovery workflow. It assesses the source, binds a separate destination, creates a resumable sector image, and performs every later recovery attempt against that image. The original source is never mounted, repaired, decrypted, or used as a PhotoRec target.
 
-## Core rule
+## Safety boundary
 
-Recovery work must preserve the source. DZap opens content samples read-only, does not mount or repair filesystems during assessment, and tells the operator to place images and recovered files on a different drive. The source path is reserved during assessment so a wipe cannot start against it concurrently.
+The backend is the authority for source and destination identity. Browser state never authorizes storage access by itself.
 
-The running system and DZap boot medium are blocked before SMART, signature, or content probes run. Another operation holding the same device reservation also blocks assessment.
+- The running system and DZap boot medium are rejected before source probes run.
+- Assessment and imaging open the source read-only.
+- Imaging requires the source and all descendants to be unmounted and inactive.
+- Source and destination whole-drive identities must still match immediately before imaging.
+- The source and destination must be different physical drives.
+- Both drives remain reserved until ddrescue stops and its final state is recorded.
+- Image inspection and file recovery revalidate and reserve the destination that contains the image.
+- Recovery tools write only beneath that job's directory on the destination.
 
-## Destination and image planning
+DZap does not run filesystem repair or write a reconstructed partition table. Repair commands change metadata and belong on a disposable copy made from the preserved image.
 
-After assessment, DZap discovers ext4, exFAT, and FAT32 volumes on removable USB drives. It excludes the complete source drive and every drive containing the running system or live medium. Each destination records the whole-drive identity plus the selected partition path and major/minor number.
+## Stage 1: assessment
 
-Unmounted destinations can be mounted through DZap's controlled removable-media path. The backend re-detects both drives, compares both identities, proves they are physically separate, and reserves them for the mount operation. Mounting may update destination filesystem metadata; it never mounts the source.
-
-`POST /api/recovery/plan` performs another fresh discovery and returns passed or blocked checks. A ready image plan requires an unmounted source with no active logical descendants, a mounted read-write destination, enough available space for every source byte plus a 64 MiB reserve, and a filesystem capable of holding the image. FAT32 is rejected when the source exceeds its single-file limit.
-
-The plan calculates a `DZap-Recovery` output directory but creates nothing. It releases its operation checks when the response is returned. A future execution request must revalidate and reserve both identities atomically before starting `ddrescue`.
-
-## Assessment checks
-
-`POST /api/recovery/assess` freshly discovers the requested whole drive and returns its detected identity with these checks:
+`POST /api/recovery/assess` freshly discovers one whole drive and records its identity. It performs these read-only checks:
 
 | Check | Evidence | Meaning |
 | --- | --- | --- |
-| Device and system protection | Linux block topology and protected mount ancestry | Rejects missing paths and avoids probing the running system or live medium. |
-| Mount state | Device and descendant mountpoints | Warns when the source may change during recovery. |
-| Active topology | RAID, LVM, encrypted, and device-mapper descendants | Warns until writable logical mappings are deactivated. |
-| Storage signatures | `lsblk` filesystem and partition-table signatures on the source tree | Finds recognizable structured storage and feeds encryption detection. |
-| Encryption | LUKS/BitLocker signatures and active `crypt` mappings | Requires valid unlock material and a read-only decrypted mapping. Encryption is not bypassed. |
-| Media condition | SMART overall status, selected ATA counters, NVMe media errors/critical warnings, and sparse read failures | Recommends imaging first when damage indicators exist. |
-| Content state | Five evenly spaced 64 KiB read-only samples plus detected signatures | Distinguishes structured data, unclassified non-blank bytes, a likely blank pattern, and insufficient evidence. |
+| Device and system protection | Linux block topology and protected mount ancestry | Rejects missing paths and the running system/live medium. |
+| Mount state | Source and descendant mountpoints | Requires quiescence before imaging. |
+| Active topology | RAID, LVM, crypt, and device-mapper descendants | Requires writable logical mappings to be deactivated. |
+| Storage signatures | Partition-table and filesystem signatures reported by `lsblk` | Finds recognizable structured storage and encryption. |
+| Encryption | LUKS, BitLocker, and active crypt mappings | Signals that an operator secret will be required after imaging. |
+| Media condition | SMART status, ATA error counters, NVMe warnings, and sample read failures | Recommends image-first handling for degraded or uncertain media. |
+| Content state | Five evenly spaced 64 KiB samples | Separates structured, non-blank, likely blank, and unknown evidence. |
 
-ATA damage indicators currently include reallocated sectors, reported uncorrectable errors, pending sectors, and offline-uncorrectable sectors. NVMe checks include media errors and the controller critical-warning value.
+Sparse samples are not a complete surface scan. `likely_blank` means every completed sample contained only `0x00` or `0xff` and no structure was recognized. It does not prove that a secure wipe completed. `non_blank` does not prove that useful files remain.
 
-## Interpretation limits
+## Stage 2: destination plan
 
-The assessment uses sparse samples, not a full surface read. Successful samples cannot prove that every sector is readable. A source containing only zeroes or `0xff` at all sampled locations, with no recognized storage signature, is classified as `likely_blank`. That result is consistent with blank or wiped media but does not prove that a secure wipe completed.
+DZap discovers ext4, exFAT, and FAT32 volumes on removable USB drives. It excludes the source drive and every drive containing the running system or live medium. A destination record binds both its whole-drive identity and selected volume path.
 
-Likewise, non-blank bytes do not prove that files are recoverable. Random overwrite output, unknown encryption, damaged metadata, and useful file content can all appear non-blank. DZap therefore reports `non_blank` separately from `structured_data`.
+`POST /api/recovery/plan` reruns discovery and returns individual checks. A ready plan requires:
 
-SMART counters are warnings for recovery planning rather than a complete diagnosis. When SMART is unavailable, the media condition stays `unknown` even if sparse reads succeed.
+- The assessed source identity still matches.
+- The source is unmounted and has no active logical descendants.
+- The destination drive and volume identities still match.
+- The destination is mounted read-write.
+- Free capacity covers the source-sized image plus a 64 MiB reserve.
+- The filesystem supports one file as large as the source. FAT32 is blocked above its single-file limit.
+- Neither drive is reserved by another DZap operation.
 
-## Decision states
+Planning writes nothing. `POST /api/recovery/jobs` repeats the plan, reserves both drives, and repeats the identity and capacity checks while those reservations are held.
 
-- `ready`: recognized data, no detected encryption or damage, unmounted source, and all checks known.
-- `caution`: one or more warnings or unknown results require operator review.
-- `blocked`: the source is missing, protected system/live media, or reserved by another operation.
+## Stage 3: resumable imaging
 
-The assessment decision authorizes no write or recovery command. The subsequent image plan binds both device identities and applies destination checks, but also starts no command.
+The imaging worker runs GNU ddrescue with a regular-file destination:
 
-## Planned execution stages
+```text
+ddrescue --no-scrape --retry-passes=3 --sparse SOURCE source.img source.map
+```
 
-1. Revalidate and reserve the planned source and destination together.
-2. Prevent source automount for the duration of recovery.
-3. Create a resumable `ddrescue` image and map file, especially for degraded or unknown media.
-4. For encrypted storage, obtain operator-supplied unlock material and expose a read-only decrypted mapping without storing the secret.
-5. Attempt filesystem-aware listing and copy from the image or read-only mapping.
-6. Offer TestDisk reconstruction or PhotoRec-style carving only when metadata recovery is insufficient.
-7. Persist recovery progress, source/destination identities, tool output, copied-file hashes, and failures without claiming that missing files never existed.
+`--sparse` avoids allocating blocks for zero-filled input ranges on filesystems that support sparse files. The map file classifies rescued, unreadable, and pending ranges. DZap parses it while imaging and persists those byte counts and the handled percentage.
 
-Automatic filesystem repair is excluded from the recovery source path. Repair tools can alter metadata and should run only against a disposable copy of an image through a separate explicit workflow.
+Pause and stop requests send `SIGINT`, giving ddrescue time to flush its map. If it does not exit within ten seconds, DZap stops it and retains the latest map. A nonzero ddrescue exit becomes a paused job rather than discarding the attempt. Resume revalidates both drives and continues with the same image and map. Space already allocated to the partial image is credited during the resume capacity check.
+
+An image is marked complete only when ddrescue exits successfully and the map contains no pending ranges. Unreadable ranges may remain; their byte count stays visible and becomes part of the job record.
+
+## Stage 4: inspect the image
+
+Once imaging completes, DZap can run two read-only inspections:
+
+- `POST /api/recovery/jobs/{id}/analyze` runs `testdisk /list` against `source.img`. It saves full stdout/stderr to a log on the destination and binds the log SHA-256 into job evidence. This is analysis only; it never asks TestDisk to write a partition table.
+- `GET /api/recovery/jobs/{id}/volumes` attaches `source.img` through a fresh read-only loop device with partition scanning. It returns stable choices such as `whole-disk` and `partition-1`; transient `/dev/loopN` names never become API selectors.
+
+The loop device is detached after inspection. A failed kernel partition scan does not destroy the image: the TestDisk log and whole-image PhotoRec path remain available.
+
+## Stage 5: encrypted images
+
+LUKS and BitLocker volumes are opened through `cryptsetup` with `--readonly`. The selected loop volume is the encrypted input, and the decrypted mapper is used only for that recovery attempt.
+
+The unlock secret:
+
+- Is accepted only in the `POST .../recover` request.
+- Is passed to cryptsetup through standard input, never a command-line argument.
+- Is never placed in a job event, diagnostic, log, output path, or JSON record.
+- Is zeroed from the backend-owned string after it is handed to cryptsetup.
+- Must be provided again for another attempt or after a restart.
+
+The mapper is closed before the loop image is detached. DZap cannot bypass encryption; an incorrect password or recovery key produces a failed attempt while preserving the image.
+
+## Stage 6: recovery methods
+
+### Filesystem copy
+
+Filesystem copy is the preferred first attempt because it preserves readable names and directories. DZap supports read-only mounts for ext2/3/4, XFS, Btrfs, FAT, exFAT, and NTFS/NTFS3. It adds `nodev`, `nosuid`, and `noexec`; ext3/4 also use `noload`, and XFS uses `norecovery`.
+
+Before copying, DZap walks the mounted image to total regular-file bytes and verifies destination capacity plus a 64 MiB reserve. It then:
+
+1. Creates a new private attempt directory below the job directory.
+2. Traverses entries in deterministic byte-name order.
+3. Never follows symbolic links.
+4. Skips symbolic links, sockets, devices, FIFOs, and other special entries.
+5. Creates recovered directories as mode `0700` and files as mode `0600`.
+6. Streams and hashes each copied regular file with SHA-256.
+7. Syncs each output file before recording its manifest entry.
+
+The JSON-lines manifest stores the display path, lossless hexadecimal path bytes, size, and SHA-256 for every copied file.
+
+### PhotoRec carving
+
+PhotoRec is the explicit fallback when filesystem metadata cannot be mounted or the filesystem copy did not find the needed files. DZap runs PhotoRec in scripted mode against the selected image volume. On ext-family filesystems it enables PhotoRec's ext2 allocation mode; other selections use a whole-volume signature scan.
+
+Carving can recover content after names and directory metadata are gone, but filenames and folder structure are usually lost. DZap requires enough free capacity for the selected volume plus its reserve, keeps PhotoRec logs/session data inside the job directory, and hashes every regular carved file into a separate manifest after PhotoRec exits successfully.
+
+A completed filesystem-copy job can start a later PhotoRec attempt. Each attempt gets a new output directory and manifest, so fallback work does not replace earlier recovered files.
+
+## Persistent records and restart behavior
+
+Each job writes records to both locations:
+
+```text
+/root/.config/DZap/recovery-jobs/recovery-<id>.json
+DESTINATION/DZap-Recovery/recovery-<id>/job.json
+```
+
+The destination job directory also contains:
+
+```text
+source.img
+source.map
+ddrescue.log
+testdisk-<attempt>.log
+filesystem_copy-files-<attempt>/
+filesystem_copy-<attempt>.manifest.jsonl
+photorec-files-<attempt>.1/
+photorec-<attempt>.manifest.jsonl
+photorec-<attempt>.log
+photorec-work-<attempt>/
+```
+
+Authorization, pause/resume, image completion, TestDisk analysis, extraction start, failure, cancellation, and recovery completion are hash-chained events. Immutable source/destination identities and artifact paths are included in every event hash. Completion evidence binds the method, output directory, file and byte counts, skipped-entry count, manifest path, and manifest SHA-256.
+
+After a backend restart:
+
+- An active ddrescue job becomes `paused` and can resume from `source.map`.
+- An active filesystem or PhotoRec attempt becomes `failed`; its image and partial output remain, and another attempt may be started.
+- Completed and cancelled records remain terminal evidence for that attempt. A completed image can still be reused for a different recovery method.
+
+WebSocket events provide live display updates. The persisted job returned by `GET /api/recovery/jobs/{id}` remains authoritative.
+
+## Capacity and interpretation limits
+
+Image planning reserves space for the image, not a second full copy of every file. Filesystem copy measures readable regular files before writing. PhotoRec cannot know its final yield, so DZap requires free space equal to the selected volume plus 64 MiB before starting.
+
+File hashes prove the bytes DZap wrote to the destination. They do not prove that a damaged source file is semantically intact, that unreadable sectors contained no other file, or that PhotoRec found every possible signature.
+
+The automated QEMU suite exercises a real ext4 source, ddrescue imaging, TestDisk analysis, filesystem recovery, PhotoRec carving, LUKS unlock, secret non-persistence, destination-full blocking, disconnected-source blocking, and post-wipe blank classification on disposable virtual disks. Physical USB qualification remains necessary for controller-specific behavior and performance.

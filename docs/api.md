@@ -25,6 +25,14 @@ Examples below use `localhost`, which reaches the same loopback service. All JSO
 | GET | `/api/recovery/destinations` | List eligible removable image destinations for one source. |
 | POST | `/api/recovery/destinations/mount` | Revalidate and mount one selected recovery destination. |
 | POST | `/api/recovery/plan` | Bind both identities and validate an image plan without starting it. |
+| GET/POST | `/api/recovery/jobs` | List recovery jobs or start a revalidated ddrescue image. |
+| GET | `/api/recovery/jobs/{id}` | Load one authoritative recovery job. |
+| POST | `/api/recovery/jobs/{id}/pause` | Safely pause active imaging after map-file flush. |
+| POST | `/api/recovery/jobs/{id}/resume` | Revalidate both drives and resume the existing map. |
+| POST | `/api/recovery/jobs/{id}/cancel` | Stop active imaging or extraction and retain partial artifacts. |
+| POST | `/api/recovery/jobs/{id}/analyze` | Run read-only TestDisk image analysis. |
+| GET | `/api/recovery/jobs/{id}/volumes` | List stable volumes detected inside a completed image. |
+| POST | `/api/recovery/jobs/{id}/recover` | Start filesystem copy or PhotoRec against an image volume. |
 | POST | `/api/unmount` | Unmount a non-system device and its direct mounted children. |
 | GET | `/api/certificates` | List signed certificates, newest first. |
 | POST | `/api/certificate` | Issue/return JSON, or PDF with `?format=pdf`. |
@@ -150,7 +158,7 @@ The path must identify a freshly detected whole storage drive. The backend block
 
 The response contains `decision` (`ready`, `caution`, or `blocked`), the detected identity, individual checks, signatures, encryption and media states, sparse-sample counts, and ordered recommendations. Content is classified as `structured_data`, `non_blank`, `likely_blank`, or `unknown`.
 
-A `likely_blank` result is not proof of a completed secure wipe. A `non_blank` result is not proof that useful files remain. See [Data recovery](data-recovery.md) for the exact interpretation and planned execution pipeline.
+A `likely_blank` result is not proof of a completed secure wipe. A `non_blank` result is not proof that useful files remain. See [Data recovery](data-recovery.md) for the exact interpretation and image-first execution pipeline.
 
 Missing, protected, and busy sources return HTTP `200` with a structured `blocked` assessment. Invalid JSON returns `400`; discovery failures return `500`.
 
@@ -187,7 +195,110 @@ The response contains `decision` (`ready` or `blocked`), fresh source and destin
 - The filesystem can hold one source-sized file. FAT32 is blocked for sources larger than its single-file limit; exFAT or ext4 is required.
 - Neither physical drive is held by another storage operation at planning time.
 
-Safety failures return HTTP `200` with a structured blocked plan. The execution endpoint will revalidate and reserve both identities again because a plan does not hold devices after it is returned.
+Safety failures return HTTP `200` with a structured blocked plan. The execution endpoint revalidates and reserves both identities again because a plan does not hold devices after it is returned.
+
+## Execute and resume a recovery image
+
+Start imaging by posting the same identity-bound request used for planning:
+
+```http
+POST /api/recovery/jobs
+Content-Type: application/json
+```
+
+A successful start returns HTTP `202`:
+
+```json
+{
+  "status": "recovery_imaging_started",
+  "jobId": "recovery-0123456789abcdef0123456789abcdef",
+  "deviceId": "/dev/sdb"
+}
+```
+
+The handler reruns the plan, reserves the source and destination whole drives, and revalidates them while both reservations are held. It creates `source.img`, `source.map`, `ddrescue.log`, and `job.json` below the destination's `DZap-Recovery` directory before starting ddrescue. A safety block returns HTTP `412` with the complete current plan. Reservation conflicts return `409`.
+
+List or load authoritative records with:
+
+```http
+GET /api/recovery/jobs
+GET /api/recovery/jobs/{id}
+```
+
+Recovery imaging statuses are `imaging`, `paused`, `image_complete`, `cancelled`, and `failed`. `mapSummary` contains `rescuedBytes`, `unreadableBytes`, `pendingBytes`, and `totalBytes`; `progressPercent` counts rescued and definitively unreadable ranges as handled.
+
+Control active imaging with empty POST requests:
+
+```http
+POST /api/recovery/jobs/{id}/pause
+POST /api/recovery/jobs/{id}/cancel
+POST /api/recovery/jobs/{id}/resume
+```
+
+Pause and cancel return HTTP `202` after the request reaches the worker. The job remains `imaging` until ddrescue exits and DZap persists the resulting state. Resume is available for a paused image or an imaging failure. It verifies the original source, destination, artifact binding, and current capacity, then passes the existing image and map back to ddrescue.
+
+## Inspect and recover files from an image
+
+After `image_complete`, list the image's stable recovery choices:
+
+```http
+GET /api/recovery/jobs/{id}/volumes
+```
+
+Representative response:
+
+```json
+[
+  {
+    "id": "partition-1",
+    "kind": "partition",
+    "sizeBytes": "500000000000",
+    "filesystem": "crypto_LUKS",
+    "label": null,
+    "encryption": "luks",
+    "filesystemCopySupported": true,
+    "photorecSupported": true
+  }
+]
+```
+
+The stable `id` is used in later requests. DZap never asks the caller to retain a transient loop-device path.
+
+Run TestDisk's read-only partition listing with:
+
+```http
+POST /api/recovery/jobs/{id}/analyze
+```
+
+The response contains `successful`, a bounded text `summary`, `logPath`, and `logSha256`. A nonzero TestDisk result is still retained as diagnostic evidence; this endpoint never requests TestDisk's write operation.
+
+Start filesystem-aware copy:
+
+```http
+POST /api/recovery/jobs/{id}/recover
+Content-Type: application/json
+
+{
+  "method": "filesystem_copy",
+  "volumeId": "partition-1",
+  "passphrase": "operator-provided-only-when-encrypted"
+}
+```
+
+For an unencrypted volume, omit `passphrase`. For LUKS or BitLocker, DZap passes it only through cryptsetup standard input and never persists it. The mapping and filesystem mount are read-only. Supported filesystem-copy types are ext2/3/4, XFS, Btrfs, FAT, exFAT, and NTFS/NTFS3.
+
+Use raw carving explicitly when filesystem recovery is unavailable or insufficient:
+
+```json
+{
+  "method": "photorec",
+  "volumeId": "whole-disk"
+}
+```
+
+Both methods return HTTP `202` and move the job to `extracting`. `completed` records contain `recoveryResult` with the output and manifest paths, recovered file/byte counts, skipped-entry count, and manifest SHA-256. A completed image can run later attempts with another method; each attempt uses distinct output and manifest paths.
+
+Cancellation during extraction uses `POST /api/recovery/jobs/{id}/cancel`. Partial output remains on the destination. If the backend restarts during extraction, the attempt becomes `failed`, while the completed image remains eligible for another attempt.
 
 ## Preflight and authorization handshake
 

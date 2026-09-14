@@ -120,6 +120,14 @@ The application became a bootable appliance:
 
 The first verified image was approximately 1.8 GiB because it inherited the complete ArchISO `releng` rescue package set. Reducing that package set is planned work rather than part of this milestone.
 
+## Image-first data recovery
+
+Recovery progressed from read-only assessment and destination planning into a complete image-first workflow. The backend now creates sparse, resumable `ddrescue` images and map files on a separately identified removable destination. Recovery jobs persist their source and destination identities, artifact paths, map progress, tool diagnostics, extraction results, and hash-chained events both internally and beside the image.
+
+Completed images can be inspected through temporary read-only loop devices. TestDisk produces a retained, hashed analysis log. Recognized filesystems can be mounted with read-only safety options and copied without following symbolic links; PhotoRec is available as an explicit carving fallback. LUKS and BitLocker mappings are opened read-only through `cryptsetup`, with secrets supplied on stdin and removed from memory after the mapping attempt. Every extraction uses a unique output directory and a SHA-256 manifest of recovered regular files.
+
+The dashboard gained a Recovery view for persistent progress, pause/resume/cancel controls, volume selection, TestDisk analysis, encrypted-volume secrets, and extraction choices. The live image packages `ddrescue`, TestDisk/PhotoRec, and `cryptsetup`. QEMU now tests healthy ext4 recovery, PhotoRec, LUKS recovery, full-destination blocking, disconnected-source blocking, blank-media assessment, and the existing verified wipe flow on disposable virtual disks.
+
 ## Current direction
 
-All deployment work serves the live-USB appliance. The obsolete Electron sources and root Node packaging manifests were removed after the Rust and live-image paths became authoritative. Older commits retain the native desktop experiments for archaeology. The next milestones are physical hardware qualification, image reduction, recovery improvements, and release hardening.
+All deployment work serves the live-USB appliance. The obsolete Electron sources and root Node packaging manifests were removed after the Rust and live-image paths became authoritative. Older commits retain the native desktop experiments for archaeology. The next milestones are physical hardware qualification, image reduction, and release hardening.

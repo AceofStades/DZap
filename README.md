@@ -1,6 +1,6 @@
 # DZap Live USB
 
-DZap is a bootable Linux environment for assessing data recovery and securely erasing attached storage. It can inspect a recovery source read-only, select a separate identity-bound destination, and validate image capacity before recovery begins. Its wipe path requires an identity-bound safety preflight, executes device-appropriate ATA, NVMe, or overwrite methods, verifies the result, and exports signed evidence bundles to removable media.
+DZap is a bootable Linux environment for recovering data and securely erasing attached storage. It assesses a source read-only, creates a resumable ddrescue image on an identity-bound destination, opens supported encryption read-only, and offers filesystem-aware copy or PhotoRec carving with per-file hash manifests. Its wipe path requires an identity-bound safety preflight, executes device-appropriate ATA, NVMe, or overwrite methods, verifies the result, and exports signed evidence bundles to removable media.
 
 Detailed design, safety, API, live-image, testing, history, and roadmap documentation is available in [`docs/`](docs/README.md).
 

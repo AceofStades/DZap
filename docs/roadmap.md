@@ -130,16 +130,19 @@ The backend remains the authority for device identity, supported methods, prefli
 
 ## P1: Data recovery execution
 
-The read-only recovery assessment now classifies storage signatures, supported encryption signatures, SMART/NVMe damage indicators, sparse read failures, and sampled content. Destination planning discovers removable volumes, binds both whole-drive identities, checks mount mode, free capacity, and FAT32 file limits, and starts no write.
+The image-first recovery workflow is implemented. It assesses the source read-only, binds a separate removable destination, and creates a sparse image with `ddrescue`. The map file and a hash-chained job record make interrupted imaging resumable. Once the image is complete, the physical source is no longer needed for analysis or extraction.
 
-Remaining execution work:
+Completed execution work:
 
-- Create resumable `ddrescue` images and map files for degraded or unknown media.
-- Unlock supported encrypted storage into read-only mappings using operator-provided secrets that are never persisted.
-- Attempt filesystem-aware recovery before raw carving, and write results only to the destination.
-- Integrate TestDisk/PhotoRec-style reconstruction and carving behind explicit, method-specific choices.
-- Persist recovery jobs, progress, source/destination identities, tool diagnostics, and recovered-file hashes.
-- Exercise damaged, blank, encrypted, disconnected, and destination-full cases using disposable virtual media before physical qualification.
+- Persistent recovery jobs bind the source identity, destination identity, image, map, diagnostics, output directory, and manifest digest.
+- Pause, cancellation, backend restart, and a nonzero `ddrescue` exit retain the image/map pair for a later resume.
+- Image volumes are exposed through temporary read-only loop devices. LUKS and BitLocker selections use temporary read-only `cryptsetup` mappings; the operator secret is sent through stdin and zeroized after use.
+- TestDisk provides a read-only partition report whose full log and SHA-256 digest are stored with the job.
+- Filesystem recovery mounts recognized filesystems read-only and copies regular files without following symbolic links. PhotoRec is the explicit raw-carving fallback.
+- Each attempt writes to a unique directory on the recovery destination and produces a JSON-lines SHA-256 manifest for recovered regular files.
+- Unit, HTTP integration, and destructive QEMU tests cover successful imaging and extraction, resumable error maps, blank media, LUKS, a disconnected source, and a full destination using disposable virtual media.
+
+Remaining qualification work is physical: boot the signed image on the hardware matrix, recover from sacrificial healthy and damaged USB media, exercise the supported encryption formats available to the tester, and retain the job records, tool logs, and manifests. Synthetic error injection proves the state transitions but cannot characterize a failing controller or flash device.
 
 The implementation and interpretation limits are documented in [Data recovery](data-recovery.md).
 

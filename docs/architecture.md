@@ -60,10 +60,13 @@ tty2 runs the `dzap-tui` client as the same unprivileged user. It lists storage,
 | `server/src/main.rs` | Process startup, root check, signing-key initialization, persistent state construction, and loopback listener. |
 | `server/src/bin/dzap-tui.rs` | Read-only terminal device browser and preflight client. |
 | `server/src/lib.rs` | Shared application state, Axum routes, CORS, allowed UI origins, and static frontend fallback. |
-| `server/src/api.rs` | HTTP/WebSocket handlers and the asynchronous wipe-to-verification orchestration. |
+| `server/src/api.rs` | HTTP/WebSocket handlers plus asynchronous wipe, imaging, and file-recovery orchestration. |
 | `server/src/core/drives.rs` | Linux block and Android discovery, topology inspection, drive classification, frozen-state probe, and safe unmounting. |
 | `server/src/core/evidence_export.rs` | Removable destination discovery/mounting, atomic evidence bundles, manifest hashing, and readback validation. |
 | `server/src/core/recovery_plan.rs` | Recovery destination capacity, dual identity binding, source quiescence, and image-plan checks. |
+| `server/src/core/recovery_jobs.rs` | Persistent recovery state, artifact binding, map progress, result metadata, and event hash chains. |
+| `server/src/core/recovery_imaging.rs` | ddrescue arguments, map parsing, pause/cancel controls, and resumable imaging. |
+| `server/src/core/recovery_extract.rs` | Read-only image/crypto mappings, volume discovery, TestDisk, filesystem copy, PhotoRec, and file manifests. |
 | `server/src/core/preflight.rs` | Read-only safety decisions and identity-bound authorization. |
 | `server/src/core/wiper.rs` | Method selection, reservations, overwrite loops, firmware-command execution, progress, pause, and abort controls. |
 | `server/src/core/ata.rs` | ATA capability parsing and safe `hdparm` argument construction. |
@@ -76,10 +79,11 @@ tty2 runs the `dzap-tui` client as the same unprivileged user. It lists storage,
 
 ## Frontend structure
 
-The frontend is a Next.js App Router application exported as static files. It has three main views:
+The frontend is a Next.js App Router application exported as static files. It has four main views:
 
 - **Devices** discovers drives, shows health and supported methods, runs preflight, and presents the destructive confirmation dialog.
 - **Progress** loads server-owned jobs, listens to WebSocket events, shows verification evidence, supports abort requests, and asks the backend to issue a certificate.
+- **Recovery** loads persistent imaging and extraction jobs, shows ddrescue map progress, controls pause/resume/cancel, runs image analysis, obtains ephemeral unlock secrets, and starts filesystem or PhotoRec recovery.
 - **Certificates** lists persisted signed certificates, exports individual JSON/PDF files, and writes complete authenticated bundles to selected removable media with a safe-unmount action.
 
 `frontend/lib/utils.ts` is the browser API client. `frontend/lib/types.ts` mirrors backend JSON structures. Reusable visual primitives live under `frontend/components/ui/`.
@@ -101,15 +105,28 @@ For a wipe request:
 7. Verified evidence is persisted before the terminal WebSocket event is sent.
 8. The reservation is released when the orchestration task ends, including error paths.
 
+For recovery:
+
+1. Assessment opens one reserved whole drive read-only and returns a fresh identity.
+2. Planning binds that source identity to a separate removable destination and checks image capacity.
+3. Start reserves both whole drives, repeats the checks under those reservations, creates persistent artifacts, and launches ddrescue.
+4. Map-file progress is persisted and broadcast; pause, failure, or restart retains a resumable image/map pair.
+5. Image inspection reserves and revalidates only the destination because later stages no longer need the physical source.
+6. A fresh read-only loop attachment exposes stable volume choices. Encrypted selections receive a temporary read-only cryptsetup mapping from a secret supplied through stdin.
+7. Filesystem recovery mounts with read-only, `nodev`, `nosuid`, and `noexec` options. PhotoRec runs directly against the selected image volume.
+8. Every recovered regular file is hashed into a JSON-lines manifest, and completion evidence binds that manifest's digest and counts.
+9. Temporary mounts, crypto mappings, loop devices, controls, and the destination reservation are released on success and error paths.
+
 WebSocket delivery is advisory UI telemetry. The persistent job record is authoritative. The progress view loads that record on entry and page navigation, reloads it whenever the socket connects, and retries a closed socket with exponential delays capped at ten seconds. Terminal events trigger an immediate single-job reload. This lets a refreshed or temporarily disconnected browser recover status without treating missed WebSocket messages as evidence.
 
 ## State and ownership
 
-`AppState` owns three clonable handles:
+`AppState` owns four clonable handles:
 
 - A broadcast `Hub`.
 - A `JobStore`.
 - A `CertificateStore`.
+- A `RecoveryJobStore`.
 
 In production startup, both stores use the Linux configuration directory. With `HOME=/root`, the expected paths are:
 
@@ -117,6 +134,7 @@ In production startup, both stores use the Linux configuration directory. With `
 /root/.config/DZap/private.pem
 /root/.config/DZap/jobs/<job-id>.json
 /root/.config/DZap/certificates/<job-id>.json
+/root/.config/DZap/recovery-jobs/recovery-<id>.json
 ```
 
 Directories are set to mode `0700`; the key and JSON records are set to `0600`. State transitions are written to a temporary file, synced, atomically renamed, and followed by a directory sync.
@@ -133,14 +151,15 @@ Static files are served as the router fallback from `DZAP_FRONTEND_DIR`, default
 
 ## Concurrency controls
 
-There are two related in-process maps:
+There are three related in-process maps:
 
 - `reserved_devices` prevents a second API wipe from starting on a path while sanitization or verification already owns it.
 - `active_wipes` stores cancellation and pause flags while the destructive worker is executing.
+- `active_controls` stores pause/cancel intent for ddrescue and cancel intent for file recovery.
 
 The reservation covers both destruction and verification. The active-control entry exists only during sanitization. This distinction lets the API reject overlapping work even after the destructive command ends and readback is still running.
 
-These maps are process-local. Backend restart recovery marks persisted nonterminal jobs failed, but it does not resume a host overwrite or reconstruct a firmware operation already running inside a controller.
+These maps are process-local. Backend restart recovery marks nonterminal wipe jobs failed. An interrupted ddrescue job becomes paused because its map is resumable; an interrupted file-recovery attempt becomes failed while retaining its completed image and partial output.
 
 ## Build-time composition
 
