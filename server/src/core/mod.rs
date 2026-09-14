@@ -7,6 +7,7 @@ pub mod nvme;
 pub mod predict;
 pub mod preflight;
 pub mod recovery;
+pub mod recovery_plan;
 pub mod verification;
 pub mod wiper;
 
@@ -18,6 +19,8 @@ mod drives_test;
 mod evidence_export_test;
 #[cfg(test)]
 mod predict_test;
+#[cfg(test)]
+mod recovery_plan_test;
 #[cfg(test)]
 mod recovery_test;
 #[cfg(test)]

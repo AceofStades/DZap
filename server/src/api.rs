@@ -11,7 +11,7 @@ use crate::core::{
     certificate::{self, SignedCertificate},
     drives, evidence_export,
     jobs::{WipeJob, WipeJobStatus},
-    predict, preflight, recovery, verification, wiper,
+    predict, preflight, recovery, recovery_plan, verification, wiper,
 };
 
 /// Helper to ensure all error responses are in a consistent JSON format.
@@ -289,6 +289,99 @@ pub async fn assess_recovery_handler(
         Err(error) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("Failed to assess recovery source: {error}"),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryDestinationsQuery {
+    pub source_device_path: String,
+}
+
+pub async fn list_recovery_destinations_handler(
+    query: Result<
+        axum::extract::Query<RecoveryDestinationsQuery>,
+        axum::extract::rejection::QueryRejection,
+    >,
+) -> Response {
+    let axum::extract::Query(query) = match query {
+        Ok(query) => query,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid query parameters: {error}"),
+            );
+        }
+    };
+    match tokio::task::spawn_blocking(move || {
+        recovery_plan::detect_recovery_destinations(&query.source_device_path)
+    })
+    .await
+    {
+        Ok(Ok(destinations)) => Json(destinations).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect recovery destinations: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect recovery destinations: {error}"),
+        ),
+    }
+}
+
+pub async fn mount_recovery_destination_handler(
+    body: Result<
+        Json<recovery_plan::RecoveryMountRequest>,
+        axum::extract::rejection::JsonRejection,
+    >,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+    match tokio::task::spawn_blocking(move || recovery_plan::mount_recovery_destination(&request))
+        .await
+    {
+        Ok(Ok(destination)) => Json(destination).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::CONFLICT,
+            &format!("Failed to mount recovery destination: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to mount recovery destination: {error}"),
+        ),
+    }
+}
+
+pub async fn plan_recovery_image_handler(
+    body: Result<Json<recovery_plan::RecoveryPlanRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+    match tokio::task::spawn_blocking(move || recovery_plan::plan_recovery_image(&request)).await {
+        Ok(Ok(plan)) => Json(plan).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to plan recovery image: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to plan recovery image: {error}"),
         ),
     }
 }
