@@ -22,6 +22,9 @@ Examples below use `localhost`, which reaches the same loopback service. All JSO
 | POST | `/api/wipe/pause` | Toggle pause for an active host wipe. |
 | POST | `/api/wipe/abort` | Request cancellation for an active wipe. |
 | POST | `/api/recovery/assess` | Run a read-only recovery-source assessment. |
+| GET | `/api/recovery/destinations` | List eligible removable image destinations for one source. |
+| POST | `/api/recovery/destinations/mount` | Revalidate and mount one selected recovery destination. |
+| POST | `/api/recovery/plan` | Bind both identities and validate an image plan without starting it. |
 | POST | `/api/unmount` | Unmount a non-system device and its direct mounted children. |
 | GET | `/api/certificates` | List signed certificates, newest first. |
 | POST | `/api/certificate` | Issue/return JSON, or PDF with `?format=pdf`. |
@@ -150,6 +153,41 @@ The response contains `decision` (`ready`, `caution`, or `blocked`), the detecte
 A `likely_blank` result is not proof of a completed secure wipe. A `non_blank` result is not proof that useful files remain. See [Data recovery](data-recovery.md) for the exact interpretation and planned execution pipeline.
 
 Missing, protected, and busy sources return HTTP `200` with a structured `blocked` assessment. Invalid JSON returns `400`; discovery failures return `500`.
+
+## Select and validate an image destination
+
+```http
+GET /api/recovery/destinations?sourceDevicePath=/dev/sdb
+```
+
+This lists removable USB volumes supported by the existing controlled-mount path: ext4, exFAT, and FAT32. The source's physical drive and the running system/live medium are excluded. Mounted entries include current filesystem size, available bytes, and read-only state. An unmounted entry returns those fields as `null` until it is mounted.
+
+The dashboard can mount a selected destination through:
+
+```http
+POST /api/recovery/destinations/mount
+Content-Type: application/json
+```
+
+The request sends `sourceDevicePath`, `expectedSourceIdentity`, and the exact `destination` object returned by discovery. The backend freshly revalidates both whole-drive identities, proves they are different physical drives, reserves both paths during the mount, and uses restricted mount options. Mounting can update the destination filesystem's metadata; the recovery source is never mounted by this operation. A changed, busy, protected, or ineligible device returns `409`.
+
+Build the non-executing plan with the same request shape:
+
+```http
+POST /api/recovery/plan
+Content-Type: application/json
+```
+
+The response contains `decision` (`ready` or `blocked`), fresh source and destination identities, image size, a 64 MiB metadata/free-space reserve, the planned `DZap-Recovery` directory, and individual checks. A ready plan requires:
+
+- The source identity still matches its assessment.
+- The source is neither system media nor mounted and has no active RAID, LVM, crypt, or device-mapper descendant.
+- The destination drive and partition identity still match the selection and differ from the source drive.
+- The destination is mounted read-write and has enough available bytes for a full source-sized image plus the reserve.
+- The filesystem can hold one source-sized file. FAT32 is blocked for sources larger than its single-file limit; exFAT or ext4 is required.
+- Neither physical drive is held by another storage operation at planning time.
+
+Safety failures return HTTP `200` with a structured blocked plan. The execution endpoint will revalidate and reserve both identities again because a plan does not hold devices after it is returned.
 
 ## Preflight and authorization handshake
 

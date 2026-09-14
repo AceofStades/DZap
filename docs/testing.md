@@ -14,6 +14,7 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/src/core/drives_test.rs` | 5 | Drive mapping/classification, recursive topology, Android parsing, malformed discovery, ATA frozen parsing. |
 | `server/src/core/evidence_export_test.rs` | 4 | Removable destination filtering, bundle write/readback, idempotence, target exclusion, and tamper rejection. |
 | `server/src/core/recovery_test.rs` | 6 | Signature/encryption parsing, SMART damage indicators, conservative sparse blank classification, recommendations, and protected-source blocking. |
+| `server/src/core/recovery_plan_test.rs` | 6 | Destination filtering/capacity, dual identity binding, source quiescence, filesystem limits, and free-space blocking. |
 | `server/src/api_test.rs` | 3 | Certificate handler uses verified server-owned jobs and rejects invalid states. |
 | `server/src/realtime_test.rs` | 2 | Hub broadcast behavior. |
 | `server/tests/api.rs` | 18 | Real HTTP/WS server, routes, invalid requests, origin rules, static frontend serving, job, certificate, and export behavior. |
@@ -23,10 +24,10 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/tests/verification.rs` | 4 | Full readback success, mismatch, size mismatch, method policy. |
 | `server/tests/ata.rs` | 3 | Security capability parser and normal/enhanced command arguments. |
 | `server/tests/drives.rs` | 3 | Public drive shapes, nested topology, ArchISO boot-media protection. |
-| `server/tests/recovery.rs` | 2 | Recovery assessment HTTP shape, missing-source blocking, and malformed requests. |
+| `server/tests/recovery.rs` | 5 | Recovery assessment and image-plan HTTP shape, missing-source blocking, required destination query, and malformed requests. |
 | `server/src/bin/dzap-tui.rs` | 4 | Selection bounds, size formatting, terminal rendering, and backend contract compatibility. |
 
-Current total with the TUI feature: **107 Rust tests**.
+Current total with the TUI feature: **116 Rust tests**.
 
 ## Safety rule for automated tests
 
@@ -35,7 +36,7 @@ No ordinary Rust test points at a real block device.
 - Overwrite tests use uniquely named regular files under the temporary directory.
 - API tests submit nonexistent device paths when exercising destructive rejection.
 - Discovery parsers consume captured/synthetic `lsblk`, `hdparm`, SMART, or NVMe output.
-- Recovery assessment tests use synthetic signatures and SMART data plus temporary regular files; they never sample a real block device.
+- Recovery tests use synthetic signatures, SMART data, device identities, capacity, and temporary regular files; they never plan against or sample a real block device.
 - Firmware command tests validate generated arguments and parsed status rather than sending commands.
 
 The one test that really wipes a block device runs inside QEMU and targets a disposable qcow2 disk.

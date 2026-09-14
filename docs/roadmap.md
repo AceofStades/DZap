@@ -130,11 +130,10 @@ The backend remains the authority for device identity, supported methods, prefli
 
 ## P1: Data recovery execution
 
-The read-only recovery assessment now classifies storage signatures, supported encryption signatures, SMART/NVMe damage indicators, sparse read failures, and sampled content. It blocks the running system/live medium and serializes assessment against wipe work on the same path.
+The read-only recovery assessment now classifies storage signatures, supported encryption signatures, SMART/NVMe damage indicators, sparse read failures, and sampled content. Destination planning discovers removable volumes, binds both whole-drive identities, checks mount mode, free capacity, and FAT32 file limits, and starts no write.
 
 Remaining execution work:
 
-- Discover and identity-bind a separate destination with enough free space.
 - Create resumable `ddrescue` images and map files for degraded or unknown media.
 - Unlock supported encrypted storage into read-only mappings using operator-provided secrets that are never persisted.
 - Attempt filesystem-aware recovery before raw carving, and write results only to the destination.

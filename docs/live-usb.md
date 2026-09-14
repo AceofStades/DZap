@@ -282,5 +282,5 @@ For persistent evidence testing, attach a second USB drive containing FAT32, exF
 - The live image has not yet passed a published physical-hardware matrix.
 - Frontend dependency audit findings remain to be resolved.
 - The optional ONNX health model/runtime is not packaged.
-- Data recovery currently stops after read-only assessment; imaging, reconstruction, and file carving are planned work.
+- Data recovery currently stops after assessment, destination mounting, and a non-executing image plan; `ddrescue` imaging, reconstruction, and file carving are planned work.
 - The Rust TUI is read-only; wipe authorization, progress, certificates, and evidence export remain in the graphical dashboard.

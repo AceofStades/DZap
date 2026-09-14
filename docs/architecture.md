@@ -63,6 +63,7 @@ tty2 runs the `dzap-tui` client as the same unprivileged user. It lists storage,
 | `server/src/api.rs` | HTTP/WebSocket handlers and the asynchronous wipe-to-verification orchestration. |
 | `server/src/core/drives.rs` | Linux block and Android discovery, topology inspection, drive classification, frozen-state probe, and safe unmounting. |
 | `server/src/core/evidence_export.rs` | Removable destination discovery/mounting, atomic evidence bundles, manifest hashing, and readback validation. |
+| `server/src/core/recovery_plan.rs` | Recovery destination capacity, dual identity binding, source quiescence, and image-plan checks. |
 | `server/src/core/preflight.rs` | Read-only safety decisions and identity-bound authorization. |
 | `server/src/core/wiper.rs` | Method selection, reservations, overwrite loops, firmware-command execution, progress, pause, and abort controls. |
 | `server/src/core/ata.rs` | ATA capability parsing and safe `hdparm` argument construction. |

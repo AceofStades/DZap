@@ -1,12 +1,22 @@
 # Data recovery
 
-DZap's data-recovery workflow begins with a read-only assessment. The current implementation does not copy, repair, decrypt, reconstruct, or carve files yet. It gathers enough evidence to choose a safer recovery path without changing the source drive.
+DZap's data-recovery workflow begins with a read-only assessment and an identity-bound image plan. The current implementation does not create an image, copy, repair, decrypt, reconstruct, or carve files yet. It gathers enough evidence to choose a safer recovery path without changing the source drive.
 
 ## Core rule
 
 Recovery work must preserve the source. DZap opens content samples read-only, does not mount or repair filesystems during assessment, and tells the operator to place images and recovered files on a different drive. The source path is reserved during assessment so a wipe cannot start against it concurrently.
 
 The running system and DZap boot medium are blocked before SMART, signature, or content probes run. Another operation holding the same device reservation also blocks assessment.
+
+## Destination and image planning
+
+After assessment, DZap discovers ext4, exFAT, and FAT32 volumes on removable USB drives. It excludes the complete source drive and every drive containing the running system or live medium. Each destination records the whole-drive identity plus the selected partition path and major/minor number.
+
+Unmounted destinations can be mounted through DZap's controlled removable-media path. The backend re-detects both drives, compares both identities, proves they are physically separate, and reserves them for the mount operation. Mounting may update destination filesystem metadata; it never mounts the source.
+
+`POST /api/recovery/plan` performs another fresh discovery and returns passed or blocked checks. A ready image plan requires an unmounted source with no active logical descendants, a mounted read-write destination, enough available space for every source byte plus a 64 MiB reserve, and a filesystem capable of holding the image. FAT32 is rejected when the source exceeds its single-file limit.
+
+The plan calculates a `DZap-Recovery` output directory but creates nothing. It releases its operation checks when the response is returned. A future execution request must revalidate and reserve both identities atomically before starting `ddrescue`.
 
 ## Assessment checks
 
@@ -38,13 +48,13 @@ SMART counters are warnings for recovery planning rather than a complete diagnos
 - `caution`: one or more warnings or unknown results require operator review.
 - `blocked`: the source is missing, protected system/live media, or reserved by another operation.
 
-The decision authorizes no write or recovery command. A later execution API must bind the operator's choice to the returned device identity and revalidate it immediately before imaging or scanning.
+The assessment decision authorizes no write or recovery command. The subsequent image plan binds both device identities and applies destination checks, but also starts no command.
 
 ## Planned execution stages
 
-1. Select and identity-bind a separate writable destination with enough free space.
-2. Unmount the source and prevent automount for the duration of recovery.
-3. For degraded or unknown media, create a resumable `ddrescue` image and map file first.
+1. Revalidate and reserve the planned source and destination together.
+2. Prevent source automount for the duration of recovery.
+3. Create a resumable `ddrescue` image and map file, especially for degraded or unknown media.
 4. For encrypted storage, obtain operator-supplied unlock material and expose a read-only decrypted mapping without storing the secret.
 5. Attempt filesystem-aware listing and copy from the image or read-only mapping.
 6. Offer TestDisk reconstruction or PhotoRec-style carving only when metadata recovery is insufficient.
