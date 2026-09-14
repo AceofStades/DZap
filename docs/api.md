@@ -21,6 +21,7 @@ Examples below use `localhost`, which reaches the same loopback service. All JSO
 | GET | `/api/wipe/jobs/{id}` | Load one authoritative job. |
 | POST | `/api/wipe/pause` | Toggle pause for an active host wipe. |
 | POST | `/api/wipe/abort` | Request cancellation for an active wipe. |
+| POST | `/api/recovery/assess` | Run a read-only recovery-source assessment. |
 | POST | `/api/unmount` | Unmount a non-system device and its direct mounted children. |
 | GET | `/api/certificates` | List signed certificates, newest first. |
 | POST | `/api/certificate` | Issue/return JSON, or PDF with `?format=pdf`. |
@@ -129,6 +130,27 @@ Response fields are:
 
 Unsupported SMART access produces `N/A`/`Not available` rather than a destructive-flow failure. SATA model prediction is optional and currently lacks a packaged model/runtime in the live image; SMART status remains useful when the model is skipped.
 
+## Assess a recovery source
+
+```http
+POST /api/recovery/assess
+Content-Type: application/json
+```
+
+```json
+{
+  "devicePath": "/dev/sdb"
+}
+```
+
+The path must identify a freshly detected whole storage drive. The backend blocks its own system/live medium and sources reserved by another storage operation. During assessment it reserves the path, reads storage signatures and SMART/NVMe health indicators, and samples five evenly spaced regions without mounting or writing to the source.
+
+The response contains `decision` (`ready`, `caution`, or `blocked`), the detected identity, individual checks, signatures, encryption and media states, sparse-sample counts, and ordered recommendations. Content is classified as `structured_data`, `non_blank`, `likely_blank`, or `unknown`.
+
+A `likely_blank` result is not proof of a completed secure wipe. A `non_blank` result is not proof that useful files remain. See [Data recovery](data-recovery.md) for the exact interpretation and planned execution pipeline.
+
+Missing, protected, and busy sources return HTTP `200` with a structured `blocked` assessment. Invalid JSON returns `400`; discovery failures return `500`.
+
 ## Preflight and authorization handshake
 
 ### 1. Read-only preflight
@@ -224,7 +246,7 @@ Relevant status codes:
 | --- | --- |
 | `202 Accepted` | Authorization evidence was persisted and the worker started. |
 | `400 Bad Request` | Invalid JSON or missing/invalid fields. |
-| `409 Conflict` | Another wipe or verification already reserves the path. |
+| `409 Conflict` | Another storage operation already reserves the path. |
 | `412 Precondition Failed` | Authorization preflight blocked; body is the plan. |
 | `500 Internal Server Error` | Discovery, worker setup, or evidence persistence failed. |
 
@@ -384,7 +406,7 @@ Content-Type: application/json
 }
 ```
 
-The backend discovers the device again and requires an exact match. It refuses a device reserved by wipe or verification, then mounts it below `/run/dzap-evidence` with `nodev,nosuid,noexec`. FAT and exFAT also receive explicit root ownership and `umask=022`. The response is the refreshed destination with a non-null `mountPath`.
+The backend discovers the device again and requires an exact match. It refuses a device reserved by another storage operation, then mounts it below `/run/dzap-evidence` with `nodev,nosuid,noexec`. FAT and exFAT also receive explicit root ownership and `umask=022`. The response is the refreshed destination with a non-null `mountPath`.
 
 Export a verified job by sending that refreshed destination:
 

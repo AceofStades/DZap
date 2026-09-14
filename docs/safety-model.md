@@ -15,7 +15,7 @@ A wipe cannot start unless all of the following are true:
 - ATA HPA and DCO capacity probes succeed and show no hidden capacity.
 - The selected ATA or NVMe firmware action is advertised by the device.
 - The detected identity exactly matches the identity the operator approved.
-- No other wipe or verification currently reserves the same device path.
+- No conflicting storage operation currently reserves the same device path.
 
 These checks run in the root backend. Disabling a UI button is only presentation; it is not a safety boundary.
 

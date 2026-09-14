@@ -128,7 +128,23 @@ The dashboard works for the tested flow, but several pieces still reflect earlie
 
 The backend remains the authority for device identity, supported methods, preflight approval, job state, and certificate contents. UI fixes must preserve that ownership.
 
-## P1: Recovery and operator-visible state
+## P1: Data recovery execution
+
+The read-only recovery assessment now classifies storage signatures, supported encryption signatures, SMART/NVMe damage indicators, sparse read failures, and sampled content. It blocks the running system/live medium and serializes assessment against wipe work on the same path.
+
+Remaining execution work:
+
+- Discover and identity-bind a separate destination with enough free space.
+- Create resumable `ddrescue` images and map files for degraded or unknown media.
+- Unlock supported encrypted storage into read-only mappings using operator-provided secrets that are never persisted.
+- Attempt filesystem-aware recovery before raw carving, and write results only to the destination.
+- Integrate TestDisk/PhotoRec-style reconstruction and carving behind explicit, method-specific choices.
+- Persist recovery jobs, progress, source/destination identities, tool diagnostics, and recovered-file hashes.
+- Exercise damaged, blank, encrypted, disconnected, and destination-full cases using disposable virtual media before physical qualification.
+
+The implementation and interpretation limits are documented in [Data recovery](data-recovery.md).
+
+## P1: Wipe-job recovery and operator-visible state
 
 Job persistence already validates records at startup and converts interrupted nonterminal jobs to failures. The live workflow still needs clearer recovery behavior.
 

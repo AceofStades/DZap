@@ -206,7 +206,7 @@ The PDF is generated directly in Rust and returned with `Content-Type: applicati
 
 ## Persistent export bundles
 
-The backend can export verified evidence to a separately mounted removable volume. Destination discovery is independent from wipe-target discovery and admits writable FAT32, exFAT, and ext4 filesystems on removable or USB-transport drives. It excludes the running system, ArchISO boot media, read-only devices, internal non-removable drives, unsupported filesystems, and drives reserved by active wipe or verification work.
+The backend can export verified evidence to a separately mounted removable volume. Destination discovery is independent from wipe-target discovery and admits writable FAT32, exFAT, and ext4 filesystems on removable or USB-transport drives. It excludes the running system, ArchISO boot media, read-only devices, internal non-removable drives, unsupported filesystems, and drives reserved by another storage operation.
 
 Unmounted destinations are mounted only after an explicit request. The request carries the complete discovered device and mount identity; the backend reruns `lsblk` and requires an exact match before invoking `mount`. Backend-created mounts live below `/run/dzap-evidence` and use `nodev,nosuid,noexec`.
 

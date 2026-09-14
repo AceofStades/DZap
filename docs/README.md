@@ -19,6 +19,7 @@ DZap currently provides:
 - Backend-owned, hash-manifested evidence bundles for removable FAT32, exFAT, or ext4 media.
 - HTTP and WebSocket APIs bound to localhost.
 - A static Next.js dashboard served by the Rust backend.
+- A read-only recovery assessment for signatures, encryption, media damage indicators, and sparse content classification.
 - A read-only Rust terminal interface for device inspection and safety preflight on tty2.
 - A hybrid BIOS/UEFI ArchISO image with automatic kiosk startup.
 - Unit, integration, destructive virtual-disk, and live-image boot tests.
@@ -54,6 +55,7 @@ The backend runs as root because raw block access and firmware erase commands re
 | [Architecture](architecture.md) | Processes, privilege boundaries, source layout, runtime data flow, and design decisions. |
 | [Safety model](safety-model.md) | Device discovery, protected-media checks, identity binding, preflight rules, reservations, pause, and abort behavior. |
 | [Wipe and verification](wipe-and-verification.md) | Supported erase methods, command execution, job state transitions, and verification policies. |
+| [Data recovery](data-recovery.md) | Read-only source assessment, interpretation limits, and the planned image-first recovery pipeline. |
 | [Evidence and certificates](evidence-and-certificates.md) | Hash chains, persistence, signatures, JSON/PDF output, startup validation, and trust limitations. |
 | [HTTP and WebSocket API](api.md) | Endpoint contracts, example requests, responses, status codes, and event messages. |
 | [Live USB](live-usb.md) | ArchISO composition, build process, boot sequence, QEMU use, and physical-media checklist. |
@@ -64,6 +66,8 @@ The backend runs as root because raw block access and firmware erase commands re
 ## Terms used in these documents
 
 **Preflight** is a read-only evaluation of a requested destructive operation. It returns a structured plan with passed or blocked checks and a detected device identity.
+
+**Recovery assessment** is a read-only inspection of one recovery source. It reports recognized storage, encryption, damage indicators, and sparse content evidence without authorizing a recovery command.
 
 **Authorization preflight** is the second evaluation performed by `POST /api/wipe`. It requires the caller to send back the identity returned by the earlier preflight. A mismatch blocks the wipe.
 

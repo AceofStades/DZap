@@ -13,6 +13,7 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/src/core/predict_test.rs` | 6 | SATA/NVMe SMART parsing, health status, feature tensor mapping, probability threshold. |
 | `server/src/core/drives_test.rs` | 5 | Drive mapping/classification, recursive topology, Android parsing, malformed discovery, ATA frozen parsing. |
 | `server/src/core/evidence_export_test.rs` | 4 | Removable destination filtering, bundle write/readback, idempotence, target exclusion, and tamper rejection. |
+| `server/src/core/recovery_test.rs` | 6 | Signature/encryption parsing, SMART damage indicators, conservative sparse blank classification, recommendations, and protected-source blocking. |
 | `server/src/api_test.rs` | 3 | Certificate handler uses verified server-owned jobs and rejects invalid states. |
 | `server/src/realtime_test.rs` | 2 | Hub broadcast behavior. |
 | `server/tests/api.rs` | 18 | Real HTTP/WS server, routes, invalid requests, origin rules, static frontend serving, job, certificate, and export behavior. |
@@ -22,9 +23,10 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/tests/verification.rs` | 4 | Full readback success, mismatch, size mismatch, method policy. |
 | `server/tests/ata.rs` | 3 | Security capability parser and normal/enhanced command arguments. |
 | `server/tests/drives.rs` | 3 | Public drive shapes, nested topology, ArchISO boot-media protection. |
+| `server/tests/recovery.rs` | 2 | Recovery assessment HTTP shape, missing-source blocking, and malformed requests. |
 | `server/src/bin/dzap-tui.rs` | 4 | Selection bounds, size formatting, terminal rendering, and backend contract compatibility. |
 
-Current total with the TUI feature: **99 Rust tests**.
+Current total with the TUI feature: **107 Rust tests**.
 
 ## Safety rule for automated tests
 
@@ -33,6 +35,7 @@ No ordinary Rust test points at a real block device.
 - Overwrite tests use uniquely named regular files under the temporary directory.
 - API tests submit nonexistent device paths when exercising destructive rejection.
 - Discovery parsers consume captured/synthetic `lsblk`, `hdparm`, SMART, or NVMe output.
+- Recovery assessment tests use synthetic signatures and SMART data plus temporary regular files; they never sample a real block device.
 - Firmware command tests validate generated arguments and parsed status rather than sending commands.
 
 The one test that really wipes a block device runs inside QEMU and targets a disposable qcow2 disk.
@@ -94,12 +97,13 @@ The harness:
 6. Starts the backend as guest root.
 7. Confirms `/api/drives` and method discovery.
 8. Fills `/dev/vda` with random bytes.
-9. Runs read-only preflight and extracts its identity.
-10. Starts `overwrite_1_pass` with that approved identity.
-11. Reads the full virtual disk back against 64 MiB of zeroes.
-12. Waits for a `verified` server job with full-readback evidence.
-13. Generates and validates JSON certificate fields.
-14. Generates a PDF and checks its `%PDF-1.4` header.
+9. Runs recovery assessment and proves it reports non-blank content without changing the disk hash.
+10. Runs read-only wipe preflight and extracts its identity.
+11. Starts `overwrite_1_pass` with that approved identity.
+12. Reads the full virtual disk back against 64 MiB of zeroes.
+13. Waits for a `verified` server job with full-readback evidence.
+14. Generates and validates JSON certificate fields.
+15. Generates a PDF and checks its `%PDF-1.4` header.
 
 The host disk is never passed through to the VM. The only destructive path is `/dev/vda` inside the guest, backed by `/tmp/dzap-e2e/scratch.qcow2`.
 
@@ -114,7 +118,7 @@ make iso
 make smoke-iso
 ```
 
-The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the BIOS and UEFI configurations select DZap immediately without an Arch installer entry, and that the live image is protected as the OS drive when attached as a disk.
+The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the BIOS and UEFI configurations select DZap immediately without an Arch installer entry, that the live image is protected as the OS drive when attached as a disk, and that recovery assessment refuses to probe that protected source.
 
 It creates only a temporary 256 MiB raw scratch disk and does not invoke a wipe. Its focus is product boot and safety initialization.
 

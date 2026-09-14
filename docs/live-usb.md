@@ -189,7 +189,8 @@ make smoke-iso
 11. Confirms `/run/dzap` belongs to `dzap`.
 12. Confirms the packaged TUI is executable, tty2 is active, and the TUI process is running.
 13. Queries `/api/drives` and requires `/dev/vda`, the live image, to be both mounted and marked as the OS drive.
-14. Powers off the guest.
+14. Requires recovery assessment of that live image to be blocked before any source probe.
+15. Powers off the guest.
 
 This test exercises the packaged root filesystem and startup service. Direct kernel boot bypasses the firmware bootloader menu, so BIOS/UEFI image metadata and physical boot must also be tested.
 
@@ -281,4 +282,5 @@ For persistent evidence testing, attach a second USB drive containing FAT32, exF
 - The live image has not yet passed a published physical-hardware matrix.
 - Frontend dependency audit findings remain to be resolved.
 - The optional ONNX health model/runtime is not packaged.
+- Data recovery currently stops after read-only assessment; imaging, reconstruction, and file carving are planned work.
 - The Rust TUI is read-only; wipe authorization, progress, certificates, and evidence export remain in the graphical dashboard.
