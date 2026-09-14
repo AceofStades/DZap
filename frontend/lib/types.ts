@@ -100,6 +100,65 @@ export interface DeviceIdentity {
 	majorMinor: string;
 }
 
+export type RecoveryCheckStatus =
+	| "passed"
+	| "warning"
+	| "blocked"
+	| "unknown";
+
+export interface RecoveryCheck {
+	code: string;
+	status: RecoveryCheckStatus;
+	message: string;
+}
+
+export interface RecoverySignature {
+	devicePath: string;
+	kind: "partition_table" | "filesystem";
+	value: string;
+}
+
+export interface RecoverySmartEvidence {
+	available: boolean;
+	passed: boolean | null;
+	reallocatedSectors: number | null;
+	pendingSectors: number | null;
+	offlineUncorrectable: number | null;
+	reportedUncorrectable: number | null;
+	nvmeMediaErrors: number | null;
+	nvmeCriticalWarning: number | null;
+}
+
+export interface RecoveryContentSample {
+	sourceOpened: boolean;
+	requestedSamples: number;
+	completedSamples: number;
+	sampledBytes: number;
+	zeroBytes: number;
+	ffBytes: number;
+	readErrors: string[];
+}
+
+export interface RecoveryAssessment {
+	decision: "ready" | "caution" | "blocked";
+	devicePath: string;
+	deviceModel: string;
+	deviceType: string;
+	identity: DeviceIdentity | null;
+	checks: RecoveryCheck[];
+	signatures: RecoverySignature[];
+	encryption: "not_detected" | "detected" | "unknown";
+	mediaCondition: "healthy" | "degraded" | "unknown";
+	contentState:
+		| "structured_data"
+		| "non_blank"
+		| "likely_blank"
+		| "unknown";
+	smart: RecoverySmartEvidence;
+	sample: RecoveryContentSample;
+	recommendations: string[];
+}
+
 export interface PreflightCheck {
 	code: string;
 	status: "passed" | "blocked";

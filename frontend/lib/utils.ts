@@ -5,6 +5,7 @@ import type {
 	DriveHealth,
 	EvidenceExportResult,
 	ExportDestination,
+	RecoveryAssessment,
 	SignedCertificate,
 	StartWipeResponse,
 	WipeJobRecord,
@@ -51,6 +52,25 @@ export async function getDriveHealth(deviceName: string): Promise<DriveHealth> {
 	const response = await fetch(apiUrl(`/drive/${drive}/health`));
 	if (!response.ok) {
 		throw new Error("Failed to fetch drive health");
+	}
+	return response.json();
+}
+
+export async function assessRecovery(
+	devicePath: string,
+): Promise<RecoveryAssessment> {
+	const response = await fetch(apiUrl("/recovery/assess"), {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ devicePath }),
+	});
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			"Failed to assess the recovery source.",
+		);
 	}
 	return response.json();
 }

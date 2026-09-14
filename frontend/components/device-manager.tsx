@@ -30,6 +30,7 @@ import { Separator } from "@/components/ui/separator";
 
 import { cn } from "@/lib/utils";
 import { ConfirmationModal } from "@/components/confirmation-modal";
+import { RecoveryAssessmentPanel } from "@/components/recovery-assessment";
 import { useRouter } from "next/navigation";
 import type {
 	Device,
@@ -237,7 +238,7 @@ export function DeviceManager({
 							Device Manager
 						</h1>
 						<p className="text-muted-foreground">
-							Manage and wipe selected storage device
+							Inspect, recover, or wipe the selected storage device
 						</p>
 					</div>
 					<div className="flex items-center space-x-2">
@@ -477,6 +478,10 @@ export function DeviceManager({
 						</CardContent>
 					</Card>
 				</div>
+
+				{device.deviceCategory === "storage" && (
+					<RecoveryAssessmentPanel device={device} />
+				)}
 
 				<Card
 					className="component-border component-border-hover"
