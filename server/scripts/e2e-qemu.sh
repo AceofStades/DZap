@@ -30,8 +30,9 @@ if [ ! -f "$ISO" ]; then
 fi
 
 echo "==> [3/5] Preparing scratch disk and driver"
-rm -f "$WORK/scratch.qcow2" "$WORK/serial.log"
+rm -f "$WORK/scratch.qcow2" "$WORK/recovery-target.qcow2" "$WORK/serial.log"
 qemu-img create -f qcow2 "$WORK/scratch.qcow2" 64M >/dev/null
+qemu-img create -f qcow2 "$WORK/recovery-target.qcow2" 256M >/dev/null
 
 VENV="$WORK/venv"
 if [ ! -x "$VENV/bin/python" ]; then
@@ -44,7 +45,11 @@ python3 -m http.server 8123 --bind 127.0.0.1 --directory "$SERVE_DIR" >/dev/null
 HTTP_PID=$!
 trap 'kill $HTTP_PID 2>/dev/null || true' EXIT
 
-"$VENV/bin/python" "$REPO_ROOT/server/scripts/e2e-driver.py" "$ISO" "$WORK/scratch.qcow2" "$WORK/serial.log"
+"$VENV/bin/python" "$REPO_ROOT/server/scripts/e2e-driver.py" \
+    "$ISO" \
+    "$WORK/scratch.qcow2" \
+    "$WORK/recovery-target.qcow2" \
+    "$WORK/serial.log"
 
 echo "==> [5/5] Results"
 grep "^E2E:" "$WORK/serial.log" || true
