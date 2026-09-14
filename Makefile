@@ -23,4 +23,7 @@ check-live:
 	grep -qx 'default 01-dzap.conf' iso/boot/efiboot/loader/loader.conf
 	grep -qx 'timeout 0' iso/boot/efiboot/loader/loader.conf
 	! grep -Riq 'Arch Linux install medium' iso/boot
+	grep -qx 'cryptsetup' iso/packages.x86_64
+	grep -qx 'ddrescue' iso/packages.x86_64
+	grep -qx 'testdisk' iso/packages.x86_64
 	python -m py_compile scripts/smoke-live-iso.py
