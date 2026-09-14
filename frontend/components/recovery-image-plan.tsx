@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
 	CheckCircle2,
 	HardDrive,
@@ -28,6 +29,7 @@ import {
 	getRecoveryDestinations,
 	mountRecoveryDestination,
 	planRecoveryImage,
+	startRecoveryImage,
 } from "@/lib/utils";
 
 function formatBytes(value: string | null) {
@@ -67,12 +69,14 @@ export function RecoveryImagePlanner({
 }: {
 	assessment: RecoveryAssessment;
 }) {
+	const router = useRouter();
 	const [destinations, setDestinations] = useState<RecoveryDestination[]>([]);
 	const [selected, setSelected] = useState<RecoveryDestination | null>(null);
 	const [plan, setPlan] = useState<RecoveryImagePlan | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [mounting, setMounting] = useState(false);
 	const [planning, setPlanning] = useState(false);
+	const [starting, setStarting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	const loadDestinations = useCallback(async () => {
@@ -164,6 +168,30 @@ export function RecoveryImagePlanner({
 		}
 	};
 
+	const startImage = async () => {
+		if (!selected || !assessment.identity || plan?.decision !== "ready") return;
+		setStarting(true);
+		setError(null);
+		try {
+			const started = await startRecoveryImage(
+				assessment.devicePath,
+				assessment.identity,
+				selected,
+			);
+			router.push(
+				`/?tab=recovery&recoveryJobId=${encodeURIComponent(started.jobId)}`,
+			);
+		} catch (startError) {
+			setError(
+				startError instanceof Error
+					? startError.message
+					: "Failed to start the recovery image.",
+			);
+		} finally {
+			setStarting(false);
+		}
+	};
+
 	return (
 		<div className="space-y-4 rounded-md border p-4">
 			<div className="flex flex-wrap items-start justify-between gap-3">
@@ -181,7 +209,7 @@ export function RecoveryImagePlanner({
 					variant="ghost"
 					size="sm"
 					onClick={() => void loadDestinations()}
-					disabled={loading || mounting || planning}
+					disabled={loading || mounting || planning || starting}
 				>
 					<RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
 					Refresh
@@ -262,7 +290,7 @@ export function RecoveryImagePlanner({
 							<Button
 								variant="outline"
 								onClick={() => void mountDestination()}
-								disabled={mounting || planning}
+								disabled={mounting || planning || starting}
 							>
 								{mounting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
 								Mount destination
@@ -270,7 +298,7 @@ export function RecoveryImagePlanner({
 						)}
 						<Button
 							onClick={() => void buildPlan()}
-							disabled={!selected.mountPath || mounting || planning}
+							disabled={!selected.mountPath || mounting || planning || starting}
 						>
 							{planning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
 							Build image plan
@@ -322,6 +350,26 @@ export function RecoveryImagePlanner({
 							</div>
 						))}
 					</div>
+					{plan.decision === "ready" && (
+						<div className="space-y-2 rounded-md border border-warning/40 bg-warning/5 p-3">
+							<p className="text-sm text-muted-foreground">
+								DZap will read the source and write a sparse image, map, log,
+								and job record to the selected destination. The source remains
+								unmounted.
+							</p>
+							<Button
+								onClick={() => void startImage()}
+								disabled={starting}
+							>
+								{starting ? (
+									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+								) : (
+									<Save className="mr-2 h-4 w-4" />
+								)}
+								Start recovery image
+							</Button>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

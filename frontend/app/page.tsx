@@ -7,13 +7,17 @@ import { Sidebar } from "@/components/sidebar";
 import { DeviceManager } from "@/components/device-manager";
 import { ProgressTracker } from "@/components/progress-tracker";
 import { CertificateManager } from "@/components/certificate-manager";
+import { RecoveryJobs } from "@/components/recovery-jobs";
 import type { Device, StorageDevice, MobileDevice } from "@/lib/types";
 import { getDevices } from "@/lib/utils";
 
-export type TabType = "devices" | "progress" | "certificates";
+export type TabType = "devices" | "progress" | "recovery" | "certificates";
 
 const isTab = (value: string | null): value is TabType =>
-	value === "devices" || value === "progress" || value === "certificates";
+	value === "devices" ||
+	value === "progress" ||
+	value === "recovery" ||
+	value === "certificates";
 
 export default function Dashboard() {
 	const router = useRouter();
@@ -28,6 +32,7 @@ export default function Dashboard() {
 			const next = new URLSearchParams(searchParams.toString());
 			next.set("tab", tab);
 			if (tab !== "progress") next.delete("jobId");
+			if (tab !== "recovery") next.delete("recoveryJobId");
 			router.push(`/?${next.toString()}`);
 		},
 		[router, searchParams],
@@ -113,6 +118,7 @@ export default function Dashboard() {
 						/>
 					)}
 					{activeTab === "progress" && <ProgressTracker />}
+					{activeTab === "recovery" && <RecoveryJobs />}
 					{activeTab === "certificates" && <CertificateManager />}
 				</main>
 			</div>

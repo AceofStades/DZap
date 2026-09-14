@@ -15,6 +15,7 @@ interface HeaderProps {
 const tabs: Array<{ id: TabType; label: string }> = [
 	{ id: "devices", label: "Devices" },
 	{ id: "progress", label: "Wipe Progress" },
+	{ id: "recovery", label: "Recovery" },
 	{ id: "certificates", label: "Evidence" },
 ];
 

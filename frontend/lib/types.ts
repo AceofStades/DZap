@@ -191,6 +191,93 @@ export interface RecoveryImagePlan {
 	checks: RecoveryPlanCheck[];
 }
 
+export type RecoveryJobStatus =
+	| "imaging"
+	| "paused"
+	| "image_complete"
+	| "extracting"
+	| "completed"
+	| "cancelled"
+	| "failed";
+
+export interface RescueMapSummary {
+	rescuedBytes: number;
+	unreadableBytes: number;
+	pendingBytes: number;
+	totalBytes: number;
+}
+
+export interface RecoveryEvent {
+	sequence: number;
+	timestamp: string;
+	eventType: string;
+	message: string;
+	previousHash: string | null;
+	eventHash: string;
+}
+
+export interface RecoveryJobRecord {
+	id: string;
+	sourceDevicePath: string;
+	sourceIdentity: DeviceIdentity;
+	destination: RecoveryDestination;
+	jobDirectory: string;
+	imagePath: string;
+	mapPath: string;
+	logPath: string;
+	status: RecoveryJobStatus;
+	startedAt: string;
+	updatedAt: string;
+	completedAt: string | null;
+	progressPercent: number;
+	mapSummary: RescueMapSummary;
+	lastMessage: string;
+	failure: string | null;
+	recoveryMethod: RecoveryMethod | null;
+	recoveryOutputDirectory: string | null;
+	recoveryResult: RecoveryResult | null;
+	testdiskAnalysis: TestdiskAnalysis | null;
+	evidenceHash: string;
+	events: RecoveryEvent[];
+}
+
+export type RecoveryMethod = "filesystem_copy" | "photorec";
+
+export interface RecoveryResult {
+	method: RecoveryMethod;
+	outputDirectory: string;
+	manifestPath: string;
+	manifestSha256: string;
+	recoveredFileCount: number;
+	recoveredBytes: number;
+	skippedEntries: number;
+}
+
+export interface TestdiskAnalysis {
+	completedAt: string;
+	successful: boolean;
+	logPath: string;
+	logSha256: string;
+	summary: string;
+}
+
+export interface RecoveryVolume {
+	id: string;
+	kind: "whole_disk" | "partition";
+	sizeBytes: string;
+	filesystem: string | null;
+	label: string | null;
+	encryption: "luks" | "bitlk" | null;
+	filesystemCopySupported: boolean;
+	photorecSupported: boolean;
+}
+
+export interface StartRecoveryResponse {
+	status: string;
+	jobId: string;
+	deviceId: string;
+}
+
 export interface PreflightCheck {
 	code: string;
 	status: "passed" | "blocked";

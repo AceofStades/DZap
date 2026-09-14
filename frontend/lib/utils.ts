@@ -8,8 +8,12 @@ import type {
 	RecoveryAssessment,
 	RecoveryDestination,
 	RecoveryImagePlan,
+	RecoveryJobRecord,
+	RecoveryMethod,
+	RecoveryVolume,
 	DeviceIdentity,
 	SignedCertificate,
+	StartRecoveryResponse,
 	StartWipeResponse,
 	WipeJobRecord,
 	WipePlan,
@@ -133,6 +137,143 @@ export async function planRecoveryImage(
 		throw await apiResponseError(
 			response,
 			"Failed to build the recovery image plan.",
+		);
+	}
+	return response.json();
+}
+
+async function recoveryRequestError(
+	response: Response,
+	fallback: string,
+): Promise<Error> {
+	const body = await response.json().catch(() => null);
+	if (body?.decision === "blocked" && Array.isArray(body.checks)) {
+		const reasons = body.checks
+			.filter((check: { status?: string }) => check.status === "blocked")
+			.map((check: { message?: string }) => check.message)
+			.filter(Boolean);
+		return new Error(reasons.join(" ") || "Recovery blocked by safety checks.");
+	}
+	return new Error(body?.error || fallback);
+}
+
+export async function startRecoveryImage(
+	sourceDevicePath: string,
+	expectedSourceIdentity: DeviceIdentity,
+	destination: RecoveryDestination,
+): Promise<StartRecoveryResponse> {
+	const response = await fetch(apiUrl("/recovery/jobs"), {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			sourceDevicePath,
+			expectedSourceIdentity,
+			destination,
+		}),
+	});
+	if (!response.ok) {
+		throw await recoveryRequestError(
+			response,
+			"Failed to start the recovery image.",
+		);
+	}
+	return response.json();
+}
+
+export async function getRecoveryJobs(): Promise<RecoveryJobRecord[]> {
+	const response = await fetch(apiUrl("/recovery/jobs"));
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to fetch recovery jobs.");
+	}
+	return response.json();
+}
+
+export async function getRecoveryJob(
+	jobId: string,
+): Promise<RecoveryJobRecord> {
+	const response = await fetch(
+		apiUrl(`/recovery/jobs/${encodeURIComponent(jobId)}`),
+	);
+	if (!response.ok) {
+		throw await apiResponseError(
+			response,
+			`Failed to fetch recovery job ${jobId}.`,
+		);
+	}
+	return response.json();
+}
+
+async function recoveryJobAction(
+	jobId: string,
+	action: "pause" | "cancel" | "resume",
+) {
+	const response = await fetch(
+		apiUrl(`/recovery/jobs/${encodeURIComponent(jobId)}/${action}`),
+		{ method: "POST" },
+	);
+	if (!response.ok) {
+		throw await recoveryRequestError(
+			response,
+			`Failed to ${action} the recovery job.`,
+		);
+	}
+	return response.json();
+}
+
+export const pauseRecoveryJob = (jobId: string) =>
+	recoveryJobAction(jobId, "pause");
+
+export const cancelRecoveryJob = (jobId: string) =>
+	recoveryJobAction(jobId, "cancel");
+
+export const resumeRecoveryJob = (jobId: string) =>
+	recoveryJobAction(jobId, "resume");
+
+export async function getRecoveryVolumes(
+	jobId: string,
+): Promise<RecoveryVolume[]> {
+	const response = await fetch(
+		apiUrl(`/recovery/jobs/${encodeURIComponent(jobId)}/volumes`),
+	);
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to inspect recovery volumes.");
+	}
+	return response.json();
+}
+
+export async function analyzeRecoveryImage(jobId: string) {
+	const response = await fetch(
+		apiUrl(`/recovery/jobs/${encodeURIComponent(jobId)}/analyze`),
+		{ method: "POST" },
+	);
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to run TestDisk analysis.");
+	}
+	return response.json();
+}
+
+export async function startRecoveryExtraction(
+	jobId: string,
+	method: RecoveryMethod,
+	volumeId: string,
+	passphrase?: string,
+) {
+	const response = await fetch(
+		apiUrl(`/recovery/jobs/${encodeURIComponent(jobId)}/recover`),
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				method,
+				volumeId,
+				...(passphrase ? { passphrase } : {}),
+			}),
+		},
+	);
+	if (!response.ok) {
+		throw await recoveryRequestError(
+			response,
+			"Failed to start file recovery.",
 		);
 	}
 	return response.json();
