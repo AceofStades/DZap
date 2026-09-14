@@ -1,0 +1,14 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux
+
+[Action]
+Description = Building and signing the DZap unified kernel image...
+When = PostTransaction
+Depends = linux
+Depends = sbsigntools
+Depends = systemd
+Depends = systemd-ukify
+Exec = /usr/local/lib/dzap/make-uki
