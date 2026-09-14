@@ -62,9 +62,18 @@ METHODS=$(http_get $BASE/api/drive/vda/wipe-methods) || fail "GET wipe-methods f
 echo "$METHODS" | grep -q 'overwrite_1_pass' || fail "unexpected methods: $METHODS"
 log "PASS wipe-methods endpoint"
 
-# --- Test 3: actually wipe the virtual disk ----------------------------------
+# --- Test 3: assess recovery without changing the virtual disk ---------------
 dd if=/dev/urandom of=$SCRATCH bs=1M 2>/dev/null
+SOURCE_HASH_BEFORE=$(sha256sum $SCRATCH | cut -d' ' -f1)
+RECOVERY=$(http_post $BASE/api/recovery/assess '{"devicePath":"/dev/vda"}') || fail "POST recovery assessment failed"
+echo "$RECOVERY" | grep -q '"decision":"caution"' || fail "unexpected recovery decision: $RECOVERY"
+echo "$RECOVERY" | grep -q '"contentState":"non_blank"' || fail "random source was not classified as non-blank: $RECOVERY"
+echo "$RECOVERY" | grep -q '"encryption":"not_detected"' || fail "unexpected encryption classification: $RECOVERY"
+SOURCE_HASH_AFTER=$(sha256sum $SCRATCH | cut -d' ' -f1)
+[ "$SOURCE_HASH_BEFORE" = "$SOURCE_HASH_AFTER" ] || fail "recovery assessment changed the source"
+log "PASS recovery assessment classified random media without changing it"
 
+# --- Test 4: actually wipe the virtual disk ----------------------------------
 PREFLIGHT_REQUEST='{"DevicePath":"/dev/vda","Method":"overwrite_1_pass","DeviceSerial":"","DeviceType":"HDD","DeviceModel":"QEMU HARDDISK"}'
 PLAN=$(http_post $BASE/api/wipe/preflight "$PREFLIGHT_REQUEST") || fail "POST /api/wipe/preflight failed"
 echo "$PLAN" | grep -q '"decision":"ready"' || fail "wipe preflight blocked: $PLAN"
@@ -111,14 +120,14 @@ echo "$JOB" | grep -q '"strategy":"full_pattern_readback"' || fail "wipe job mis
 echo "$JOB" | grep -q '"bytesChecked":67108864' || fail "wipe job did not verify the full virtual disk: $JOB"
 log "PASS server recorded full-readback hash-chained wipe evidence"
 
-# --- Test 4: certificate endpoint --------------------------------------------
+# --- Test 5: certificate endpoint --------------------------------------------
 CERT_REQUEST=$(printf '{"jobId":"%s"}' "$JOB_ID")
 CERT=$(http_post $BASE/api/certificate "$CERT_REQUEST")
 echo "$CERT" | grep -q '"signature":"' || fail "certificate missing signature: $CERT"
 echo "$CERT" | grep -q '"evidenceHash":"' || fail "certificate missing evidence hash: $CERT"
 log "PASS certificate generation"
 
-# --- Test 5: PDF format -------------------------------------------------------
+# --- Test 6: PDF format -------------------------------------------------------
 wget -q -O /tmp/cert.pdf --header='Content-Type: application/json' \
     --post-data="$CERT_REQUEST" \
     "$BASE/api/certificate?format=pdf" || fail "PDF endpoint failed"

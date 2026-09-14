@@ -14,6 +14,7 @@ smoke-iso:
 
 check-live:
 	bash -n scripts/build-live-iso.sh scripts/run-live-iso.sh
+	sh -n server/scripts/guest-test.sh
 	bash -n iso/airootfs/etc/profile.d/dzap-kiosk.sh
 	bash -n iso/airootfs/usr/local/bin/dzap-kiosk
 	test "$$(readlink iso/airootfs/etc/systemd/system/getty.target.wants/getty@tty2.service)" = /usr/lib/systemd/system/getty@.service
