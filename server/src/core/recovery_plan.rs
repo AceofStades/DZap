@@ -114,6 +114,31 @@ pub fn detect_recovery_destinations(
     })
 }
 
+pub(crate) fn revalidate_recovery_destination(
+    expected: &RecoveryDestination,
+) -> Result<RecoveryDestination, String> {
+    let destinations = detect_recovery_destinations("")?;
+    let current = destinations
+        .into_iter()
+        .find(|candidate| {
+            candidate.drive_path == expected.drive_path
+                && candidate.device_path == expected.device_path
+                && candidate.device_major_minor == expected.device_major_minor
+        })
+        .ok_or_else(|| "recovery destination changed, disappeared, or is ineligible".to_string())?;
+    if current.drive_identity != expected.drive_identity
+        || current.mount_path != expected.mount_path
+        || current.filesystem != expected.filesystem
+        || current.size_bytes != expected.size_bytes
+    {
+        return Err("recovery destination identity or mount binding changed".to_string());
+    }
+    if current.read_only != Some(false) {
+        return Err("recovery destination is no longer mounted read-write".to_string());
+    }
+    Ok(current)
+}
+
 pub fn mount_recovery_destination(
     request: &RecoveryMountRequest,
 ) -> Result<RecoveryDestination, String> {
@@ -134,6 +159,27 @@ pub fn mount_recovery_destination(
 }
 
 pub fn plan_recovery_image(request: &RecoveryPlanRequest) -> Result<RecoveryImagePlan, String> {
+    current_recovery_image_plan(request, true, 0)
+}
+
+pub(crate) fn revalidate_recovery_image(
+    request: &RecoveryPlanRequest,
+) -> Result<RecoveryImagePlan, String> {
+    current_recovery_image_plan(request, false, 0)
+}
+
+pub(crate) fn revalidate_recovery_resume(
+    request: &RecoveryPlanRequest,
+    existing_image_allocated_bytes: u64,
+) -> Result<RecoveryImagePlan, String> {
+    current_recovery_image_plan(request, false, existing_image_allocated_bytes)
+}
+
+fn current_recovery_image_plan(
+    request: &RecoveryPlanRequest,
+    inspect_reservations: bool,
+    existing_image_allocated_bytes: u64,
+) -> Result<RecoveryImagePlan, String> {
     let drives = detect_storage_drives()?;
     let source = drives
         .iter()
@@ -147,6 +193,7 @@ pub fn plan_recovery_image(request: &RecoveryPlanRequest) -> Result<RecoveryImag
     });
 
     let source_reservation_error = match source {
+        Some(_) if !inspect_reservations => None,
         Some(drive) if device_is_reserved(&drive.name)? => Some(format!(
             "another storage operation is already active for device {}",
             drive.name
@@ -155,6 +202,7 @@ pub fn plan_recovery_image(request: &RecoveryPlanRequest) -> Result<RecoveryImag
         None => Some("recovery source is unavailable".to_string()),
     };
     let destination_reservation_error = match destination {
+        Some(_) if !inspect_reservations => None,
         Some(candidate) if device_is_reserved(&candidate.drive_path)? => Some(format!(
             "another storage operation is already active for device {}",
             candidate.drive_path
@@ -163,12 +211,13 @@ pub fn plan_recovery_image(request: &RecoveryPlanRequest) -> Result<RecoveryImag
         None => Some("recovery destination is unavailable".to_string()),
     };
 
-    Ok(build_image_plan(
+    Ok(build_image_plan_with_credit(
         request,
         source,
         destination,
         source_reservation_error,
         destination_reservation_error,
+        existing_image_allocated_bytes,
     ))
 }
 
@@ -340,12 +389,31 @@ fn plan_check(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn build_image_plan(
     request: &RecoveryPlanRequest,
     source: Option<&Drive>,
     destination: Option<&RecoveryDestination>,
     source_reservation_error: Option<String>,
     destination_reservation_error: Option<String>,
+) -> RecoveryImagePlan {
+    build_image_plan_with_credit(
+        request,
+        source,
+        destination,
+        source_reservation_error,
+        destination_reservation_error,
+        0,
+    )
+}
+
+fn build_image_plan_with_credit(
+    request: &RecoveryPlanRequest,
+    source: Option<&Drive>,
+    destination: Option<&RecoveryDestination>,
+    source_reservation_error: Option<String>,
+    destination_reservation_error: Option<String>,
+    existing_image_allocated_bytes: u64,
 ) -> RecoveryImagePlan {
     let source_size = source
         .and_then(|drive| drive.size.parse::<u64>().ok())
@@ -390,7 +458,7 @@ pub(crate) fn build_image_plan(
     let enough_space = destination
         .and_then(|candidate| candidate.available_bytes.as_deref())
         .and_then(|bytes| bytes.parse::<u64>().ok())
-        .map(|available| available >= required_bytes)
+        .map(|available| available.saturating_add(existing_image_allocated_bytes) >= required_bytes)
         .unwrap_or(false);
 
     let mut checks = vec![
@@ -475,8 +543,8 @@ pub(crate) fn build_image_plan(
             "destination_capacity",
             enough_space,
             format!(
-                "Destination has enough free space for the source image plus a {} MiB reserve.",
-                IMAGE_RESERVE_BYTES / 1024 / 1024
+                "Destination has enough usable space for the source image plus a {} MiB reserve.",
+                IMAGE_RESERVE_BYTES / 1024 / 1024,
             ),
             format!(
                 "Destination needs at least {required_bytes} available bytes for the image and recovery metadata."
