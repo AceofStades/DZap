@@ -127,6 +127,20 @@ It creates only a temporary 256 MiB raw scratch disk and does not invoke a wipe.
 
 The direct-kernel smoke boot does not exercise the BIOS SYSLINUX or UEFI systemd-boot menu. Image metadata can be inspected with `xorriso`, while firmware boot still requires interactive QEMU or physical-machine testing.
 
+## Secure Boot image verification
+
+Generate an owner key, build the signed image, and verify its EFI artifacts:
+
+```bash
+make secure-boot-key
+make secure-iso
+make verify-secure-iso
+```
+
+The secure build fails closed if the private key is a symlink, is readable by group/others, does not match its certificate, or if a completed EFI artifact cannot be verified. The post-build verifier extracts the ISO's EFI system partition and checks the systemd-boot executables, signed UKI, required UKI sections, published enrollment certificate, and signed-only loader entry against the host certificate. It also lists the packed SquashFS, rejects an image containing the staged key directory, signing hook, or helper, and checks the public live-root metadata against the signing certificate.
+
+This is a structural and cryptographic artifact test. The smoke harness direct-boots the Linux kernel, so it does not exercise UEFI signature enforcement. A complete firmware test still needs an OVMF or physical machine whose `db` contains the generated owner certificate, followed by a negative boot test with an unenrolled or modified image.
+
 ## Shell and packaging checks
 
 ```bash
@@ -171,6 +185,7 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - HTTP, WebSocket, origin policy, and static serving work through a real listener.
 - A real guest block device can pass the complete overwrite-to-certificate path.
 - The packaged live root boots, starts DZap, serves the UI, and protects its own media.
+- A signed ISO can be built whose systemd-boot executables and UKI validate against one owner certificate, contain the required UKI sections, and expose no unsigned UEFI kernel fallback.
 
 ## What is not proven yet
 
@@ -181,7 +196,8 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - BIOS and UEFI boot across a documented hardware matrix.
 - Power-loss behavior during each sanitization method.
 - Export, safe removal, and reboot retention on physical FAT32, exFAT, and ext4 USB media.
-- Secure Boot.
+- Secure Boot enforcement and owner-key enrollment across real firmware implementations, including rejection of unenrolled or tampered images.
+- Integrity enforcement for the external ArchISO SquashFS; it is outside the current UKI signature.
 - Recovery behavior during physical long-running wipes, browser restarts, and backend restarts.
 
 These are release risks and belong in the roadmap rather than being implied by a green unit suite.

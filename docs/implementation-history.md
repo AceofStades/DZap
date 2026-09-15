@@ -128,6 +128,25 @@ Completed images can be inspected through temporary read-only loop devices. Test
 
 The dashboard gained a Recovery view for persistent progress, pause/resume/cancel controls, volume selection, TestDisk analysis, encrypted-volume secrets, and extraction choices. The live image packages `ddrescue`, TestDisk/PhotoRec, and `cryptsetup`. QEMU now tests healthy ext4 recovery, PhotoRec, LUKS recovery, full-destination blocking, disconnected-source blocking, blank-media assessment, and the existing verified wipe flow on disposable virtual disks.
 
+## Owner-key Secure Boot
+
+### `0399fc6` — `feat(live): add owner-key Secure Boot`
+
+The live-image builder gained an explicit signed variant while preserving the ordinary hybrid image:
+
+- `make secure-boot-key` creates a private RSA owner key plus PEM and DER certificates under the ignored build directory and refuses to overwrite them.
+- `make secure-iso` validates key permissions and key/certificate agreement, then stages them only inside the temporary ArchISO profile.
+- A package hook uses `systemd-ukify` to combine and sign the kernel, initramfs, command line, and OS metadata as one DZap UKI.
+- The same key signs the x86-64 systemd-boot EFI executables. The secure UEFI loader entry references only the signed UKI.
+- The build hook verifies its outputs, deletes the staged private material, and leaves public fingerprint metadata in the image; the builder publishes the enrollment certificate beside the ISO.
+- The post-build verifier extracts the actual EFI system partition and independently checks every signature, required UKI section, published certificate, and absence of an unsigned loader fallback.
+
+This is an owner-enrollment model: firmware does not trust the image until the DZap certificate is added to its `db`. The bootloader and UKI are authenticated, while the external ArchISO SquashFS remains outside the signature. Physical firmware qualification and authenticated-root design remain hardening tasks rather than claims of this milestone.
+
+## Architecture diagrams
+
+The current release documentation includes standalone Archify diagrams for system architecture, the wipe workflow, and the recovery workflow. Their editable JSON sources live beside the HTML artifacts under `docs/diagrams/`. Each artifact supports light and dark themes, multiple views, and direct image/vector export for team review.
+
 ## Current direction
 
-All deployment work serves the live-USB appliance. The obsolete Electron sources and root Node packaging manifests were removed after the Rust and live-image paths became authoritative. Older commits retain the native desktop experiments for archaeology. The next milestones are physical hardware qualification, image reduction, and release hardening.
+All deployment work serves the live-USB appliance. The obsolete Electron sources and root Node packaging manifests were removed after the Rust and live-image paths became authoritative. Older commits retain the native desktop experiments for archaeology. The demo now includes recovery, owner-key Secure Boot artifacts, and shareable workflow documentation. The remaining release work is physical hardware qualification, image reduction/reproducibility, full root integrity, and key/evidence trust operations.

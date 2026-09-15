@@ -2,7 +2,7 @@
 
 This roadmap covers the remaining work for DZap as an **x86-64 bootable USB appliance**. It deliberately excludes native Windows, macOS, Electron, and installed-Linux application packaging. Priorities are based on whether a gap can lose evidence, permit an unsafe operation, or prevent the live image from working on real hardware.
 
-The current implementation already discovers disks, blocks known-dangerous targets, performs capability-aware wipe operations, verifies the result, records a hash-chained job history, and generates signed certificates. It also builds and boots as an ArchISO image. The work below turns those pieces into a release that can be trusted outside the development environment.
+The current implementation already discovers disks, blocks known-dangerous targets, performs capability-aware wipe operations, verifies the result, records a hash-chained job history, and generates signed certificates. It builds and boots as an ArchISO image and can produce an owner-key-signed UEFI boot path. The work below turns those pieces into a release that can be trusted outside the development environment.
 
 ## Priority definitions
 
@@ -171,7 +171,9 @@ Silent fallback should become an explicit capability state so the dashboard does
 ## P2: Release hardening
 
 - Sign release checksums and document how operators verify them before writing the USB.
-- Evaluate Secure Boot support and define who owns the signing keys and revocation process.
+- Qualify owner-key enrollment and Secure Boot enforcement on OVMF and real firmware, including rejection tests for unenrolled and modified images.
+- Define production Secure Boot key custody, rotation, revocation, and recovery procedures; the generated project key is currently a demo trust root.
+- Authenticate the external ArchISO root filesystem, for example with dm-verity whose root hash is bound into the signed UKI.
 - Add an offline evidence verifier that accepts an exported bundle and produces a clear valid/invalid report without trusting DZap's backend.
 - Add accessibility checks for keyboard navigation, focus visibility, contrast, progress announcements, and destructive-action confirmation.
 - Improve display fallback behavior for unsupported graphics hardware and provide a readable console error when kiosk startup fails.
@@ -197,6 +199,7 @@ A first dependable bootable-USB release is ready when all of the following are t
 
 - the ISO builds from a clean documented environment and its inputs are traceable;
 - BIOS and UEFI boot paths pass the hardware qualification matrix;
+- the supported Secure Boot path passes positive and negative firmware-enforcement tests with documented owner-key enrollment;
 - supported SATA, NVMe, HDD, and USB methods pass on declared test hardware;
 - protected mounts, the live medium, active topology, identity changes, frozen ATA devices, hidden capacity, and unsupported firmware capabilities fail closed;
 - every successful job has method-appropriate verification and a valid evidence chain;

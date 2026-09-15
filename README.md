@@ -18,7 +18,7 @@ Detailed design, safety, API, live-image, testing, history, and roadmap document
 Builds currently target x86-64 Arch Linux hosts. Install the build tools:
 
 ```bash
-sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup
+sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup sbsigntools
 rustup default stable
 rustup target add x86_64-unknown-linux-musl
 ```
@@ -30,6 +30,16 @@ make iso
 ```
 
 The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, replaces its installer entries with immediate DZap boot entries, adds the DZap packages and startup files, exports the frontend, and builds static Rust binaries.
+
+For an owner-key Secure Boot image, generate a locally held signing key once and build the signed variant:
+
+```bash
+make secure-boot-key
+make secure-iso
+make verify-secure-iso
+```
+
+The signed image and its public `dzap-secure-boot.cer` enrollment companion are written to `out/secure/`. Enroll only that certificate in the target firmware's Secure Boot signature database (`db`); keep `db.key` private and never copy it to the USB. The firmware will reject this image until its owner key is enrolled because the project does not use a factory Microsoft-trusted key. See the [Secure Boot runbook](docs/live-usb.md#owner-key-secure-boot) for enrollment, verification, and current integrity limits.
 
 Test the image with a dedicated virtual disk:
 
@@ -77,6 +87,9 @@ npm run build
 npx tsc --noEmit
 cd ..
 make check-live
+make verify-secure-iso
 make smoke-iso
 ./server/scripts/e2e-qemu.sh
 ```
+
+Interactive architecture, wipe, and recovery diagrams are available in [`docs/diagrams/`](docs/diagrams/README.md). Each HTML file is standalone and can be shared with the team directly.

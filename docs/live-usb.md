@@ -10,16 +10,17 @@ The current builder targets:
 - Legacy BIOS through SYSLINUX.
 - UEFI through systemd-boot.
 - Hybrid ISO layout suitable for optical boot or raw imaging to USB.
+- Optional owner-key Secure Boot for the UEFI systemd-boot and unified kernel image path.
 - Arch Linux hosts with the `archiso` package installed.
 
-Secure Boot signing is not implemented. ARM and other architectures are not current targets.
+ARM and other architectures are not current targets. The owner-key image requires certificate enrollment and is not automatically trusted by factory firmware keys.
 
 ## Host requirements
 
 On an Arch Linux build host:
 
 ```bash
-sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup
+sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup sbsigntools
 rustup default stable
 rustup target add x86_64-unknown-linux-musl
 ```
@@ -32,6 +33,8 @@ The smoke test additionally uses:
 - `qemu-system-x86_64` to boot it.
 - Python 3 with `pexpect` on the host.
 - `jq` inside the current `releng`-based live image.
+
+The signed build additionally uses OpenSSL to create/check the owner key and `sbverify` from `sbsigntools` to verify finished EFI artifacts. `systemd-ukify` and `sbsigntools` are installed inside the temporary ArchISO build root for UKI construction and signing.
 
 ## Build command
 
@@ -46,6 +49,41 @@ This calls `scripts/build-live-iso.sh`. Useful overrides are:
 | `DZAP_ISO_BUILD_DIR` | `build/archiso` | Temporary copied profile and work tree. |
 | `DZAP_ISO_OUT_DIR` | `out` | Finished image directory. |
 | `ARCHISO_PROFILE_DIR` | `/usr/share/archiso/configs/releng` | Installed base profile copied for this build. |
+
+## Owner-key Secure Boot
+
+Generate the owner key once:
+
+```bash
+make secure-boot-key
+```
+
+This creates three ignored files under `build/secure-boot/`:
+
+| File | Handling |
+| --- | --- |
+| `db.key` | RSA private key, mode `0600`; retain only on the controlled build host. |
+| `db.pem` | PEM certificate used by the build and host verifier. |
+| `db.cer` | DER certificate to enroll in the firmware Secure Boot `db`. |
+
+The generator refuses to replace existing key material. Back up the key securely if the same trust identity must sign later images; losing it prevents updates under that identity. Never publish, commit, enroll, or copy `db.key` to the live USB.
+
+Build and verify the signed variant:
+
+```bash
+make secure-iso
+make verify-secure-iso
+```
+
+The signed ISO and a public `dzap-secure-boot.cer` enrollment companion are written to `out/secure/`; the ordinary `make iso` output remains in `out/`. `make secure-iso` also runs the verifier automatically and fails the build if signatures, UKI sections, certificate publication, or the signed-only loader entry are wrong. To verify an explicitly selected image whose companion certificate is in the same directory:
+
+```bash
+make verify-secure-iso ISO=/path/to/dzap.iso
+```
+
+Before booting with Secure Boot enabled, use the machine firmware's custom-key or key-management screen to enroll `out/secure/dzap-secure-boot.cer` (the same certificate as `build/secure-boot/db.cer`) in the allowed signature database (`db`). Firmware interfaces differ, and some require setup/custom mode before they accept an owner key. Preserve any vendor keys needed by the machine and follow its firmware documentation. The unmodified machine will reject DZap until this certificate is enrolled because DZap does not carry a Microsoft-trusted signature.
+
+The signed chain covers systemd-boot and a UKI containing the kernel, initramfs, command line, and OS metadata. The external ArchISO SquashFS is not part of that signature. Treat this as an owner-enrolled Secure Boot demo rather than verified-root or measured-boot support.
 
 ## Build stages
 
@@ -130,6 +168,10 @@ The builder removes the copied UEFI installer, speech, and memory-test entries b
 
 `mkarchiso -v -r` then creates the hybrid image in `out/`. The output name includes the build date.
 
+### 6. Sign the UEFI path when requested
+
+For `make secure-iso`, a build-only pacman hook runs after ArchISO creates the kernel and initramfs. `systemd-ukify` combines those artifacts with the ISO search command line, signs the resulting `vmlinuz-dzap.efi`, and writes it below `/boot`. The hook signs the systemd-boot EFI executables, verifies each signature immediately, and removes the private key, helper, and hook before the root filesystem is packed. The copied UEFI loader entry points only at the signed UKI.
+
 ## Source-controlled overlay
 
 | Path | Purpose |
@@ -138,6 +180,9 @@ The builder removes the copied UEFI installer, speech, and memory-test entries b
 | `iso/boot/syslinux/archiso_sys-linux.cfg` | Defines the DZap BIOS kernel and initramfs entry. |
 | `iso/boot/efiboot/loader/loader.conf` | Selects the DZap UEFI entry immediately without disabling diagnostic boot-option editing. |
 | `iso/boot/efiboot/loader/entries/01-dzap.conf` | Defines the DZap UEFI kernel and initramfs entry. |
+| `iso/boot/efiboot/loader/entries/01-dzap-secure.conf` | Defines the signed UKI entry used only by the Secure Boot build. |
+| `iso/secure-boot/99-dzap-secure-boot.hook` | Runs UKI creation and signing during the temporary package transaction. |
+| `iso/secure-boot/make-uki.sh` | Builds/verifies the UKI and signs systemd-boot, then removes staged secrets. |
 | `iso/packages.x86_64` | DZap-specific runtime packages. |
 | `iso/airootfs/etc/systemd/system/dzap-backend.service` | Root backend startup and restart policy. |
 | `iso/airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf` | tty1 autologin as `dzap` after backend/sysusers/tmpfiles. |
@@ -152,7 +197,7 @@ The project intentionally does not vendor all ArchISO boot files. Copying the in
 
 ## Boot sequence
 
-1. BIOS or UEFI selects the DZap entry immediately without showing the Arch installer menu.
+1. BIOS or UEFI selects the DZap entry immediately without showing the Arch installer menu. With Secure Boot enabled, firmware first authenticates systemd-boot and systemd-boot authenticates the DZap UKI against the enrolled owner key.
 2. The ArchISO initramfs locates the image and mounts it below `/run/archiso`.
 3. The compressed root filesystem receives a writable temporary overlay.
 4. systemd creates the `dzap` account and `/run/dzap`.
@@ -193,6 +238,20 @@ make smoke-iso
 15. Powers off the guest.
 
 This test exercises the packaged root filesystem and startup service. Direct kernel boot bypasses the firmware bootloader menu, so BIOS/UEFI image metadata and physical boot must also be tested.
+
+## Automated Secure Boot artifact verification
+
+`scripts/verify-secure-iso.py` independently extracts the EFI system partition from the completed ISO and checks:
+
+1. Every x86-64 systemd-boot EFI executable validates against the requested certificate.
+2. `vmlinuz-dzap.efi` validates against the same certificate.
+3. The UKI contains `.linux`, `.initrd`, `.cmdline`, and `.osrel` sections, and its signed command line selects the ISO's actual ArchISO search UUID.
+4. The enrollment certificate published beside the ISO is byte-for-byte the DER form of the host certificate.
+5. The active UEFI loader entry selects the UKI and contains no `linux` or `initrd` fallback directives.
+6. The packed live root contains none of the staged signing directory, build hook, or signing helper.
+7. The public Secure Boot metadata inside the live root matches the signing certificate and names the enrollment companion accurately.
+
+These checks prove artifact construction and signature consistency. The existing QEMU smoke test direct-boots the kernel, so it does not prove firmware enforcement or successful key enrollment.
 
 The first complete smoke-tested image was about 1.8 GiB. QEMU software emulation took roughly two to three minutes to reach the guest checks. Those measurements are observations, not fixed limits.
 
@@ -278,7 +337,8 @@ For persistent evidence testing, attach a second USB drive containing FAT32, exF
 - The full `releng` package list makes the image larger and slower than necessary.
 - Build inputs come from the current host Arch repositories and installed profile rather than a pinned snapshot.
 - The writable overlay and kiosk home are volatile.
-- Secure Boot is not supported.
+- Secure Boot uses an owner key that must be enrolled per machine; factory-key trust, key rotation/revocation, and signed release distribution are not implemented.
+- The signed UKI does not authenticate the external ArchISO SquashFS.
 - The live image has not yet passed a published physical-hardware matrix.
 - Frontend dependency audit findings remain to be resolved.
 - The optional ONNX health model/runtime is not packaged.

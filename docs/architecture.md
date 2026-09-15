@@ -4,7 +4,26 @@
 
 DZap is designed to boot independently of the installed operating system. This matters because an installed OS normally mounts and actively uses the same storage that an erasure tool needs to inspect or destroy. The live USB provides a known runtime, a controlled root process, and an unprivileged local UI without installing DZap on the machine being serviced.
 
-The current target is x86-64 with both legacy BIOS and UEFI boot entries. Both firmware paths select DZap immediately without presenting ArchISO's installer menu. The live image is based on ArchISO. The backend is statically linked against musl; the graphical environment and hardware tools come from Arch packages.
+The current target is x86-64 with both legacy BIOS and UEFI boot entries. Both firmware paths select DZap immediately without presenting ArchISO's installer menu. The optional owner-key Secure Boot build signs the UEFI path; legacy BIOS remains available but does not participate in Secure Boot. The live image is based on ArchISO. The backend is statically linked against musl; the graphical environment and hardware tools come from Arch packages.
+
+## Trusted boot path
+
+The signed build deliberately has one short trust chain:
+
+```mermaid
+flowchart LR
+    key[Owner db certificate enrolled in firmware] --> firmware[UEFI Secure Boot]
+    firmware --> boot[Signed systemd-boot EFI binary]
+    boot --> uki[Signed DZap UKI]
+    uki --> kernel[Linux kernel]
+    uki --> initramfs[ArchISO initramfs]
+    uki --> cmdline[ISO search command line]
+    initramfs --> squashfs[External ArchISO SquashFS]
+```
+
+The UKI binds the Linux kernel, initramfs, operating-system metadata, and ISO search command line into one signed PE image. The build signs the systemd-boot executables with the same owner key and replaces the ordinary split UEFI kernel/initramfs entry with the UKI entry. The public enrollment certificate is published as `dzap-secure-boot.cer` beside the finished ISO. The private key exists only in the host's ignored `build/secure-boot` directory and a temporary root-only profile path during image construction; the image hook removes that path before ArchISO packs the root filesystem.
+
+This boundary authenticates the boot manager and UKI. The root SquashFS is loaded as an external ArchISO artifact and is not covered by that PE signature. Full userspace integrity would require an authenticated root mechanism such as dm-verity plus a root hash bound into the signed UKI. The current implementation makes the demo's boot components verifiable without claiming that stronger property.
 
 ## Runtime processes
 
@@ -167,6 +186,8 @@ The source tree does not copy ArchISO's full `releng` profile into version contr
 
 This avoids carrying a stale fork of ArchISO boot files, but it also means the base image changes with the host's installed ArchISO profile and current package repositories. Pinning and recording this input is part of release hardening.
 
+With `DZAP_SECURE_BOOT=1`, the builder validates the private-key permissions and confirms that the certificate matches it. It adds `sbsigntools` and `systemd-ukify`, stages a root-only pacman hook, and builds a signed UKI after the kernel/initramfs transaction. The hook also signs every packaged systemd-boot EFI executable and deletes its signing inputs. After `mkarchiso` completes, `scripts/verify-secure-iso.py` extracts the ISO's actual EFI system partition and proves that the bootloaders and UKI validate against the requested certificate, that required UKI sections exist, that the published enrollment certificate matches, and that the loader entry cannot fall back to an unsigned split kernel.
+
 ## Design decisions worth preserving
 
 - Keep destructive device access in one root backend rather than the browser.
@@ -177,3 +198,4 @@ This avoids carrying a stale fork of ArchISO boot files, but it also means the b
 - Fail startup on malformed or tampered persisted evidence.
 - Hold an exclusive device reservation through verification.
 - Keep generated images and working directories out of Git.
+- Keep Secure Boot private keys outside the source tree and finished ISO.

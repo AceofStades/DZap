@@ -1,6 +1,6 @@
 # DZap engineering guide
 
-These documents describe the Rust-based DZap implementation as it exists after the first bootable live-USB milestone. They explain what the system does, why its safety checks exist, what has been tested, and which gaps remain.
+These documents describe the current Rust-based DZap bootable-USB build. They explain what the system does, why its safety checks exist, what has been tested, and which gaps remain.
 
 The product scope is an **x86-64 bootable USB appliance**. The repository contains no native desktop packaging path. The live environment boots its own Linux system, starts the privileged Rust backend, and opens the local dashboard in an unprivileged Chromium kiosk.
 
@@ -24,6 +24,7 @@ DZap currently provides:
 - Read-only image inspection, encrypted-volume access, filesystem copy, PhotoRec carving, and recovered-file hash manifests.
 - A read-only Rust terminal interface for device inspection and safety preflight on tty2.
 - A hybrid BIOS/UEFI ArchISO image with automatic kiosk startup.
+- An owner-key Secure Boot build that signs systemd-boot and a unified kernel image containing the kernel, initramfs, and boot command line.
 - Unit, integration, destructive virtual-disk, and live-image boot tests.
 
 The software path for evidence persistence is now complete: the dashboard selects removable media, the backend mounts it with restricted options, exports an authenticated bundle, reads it back, and can safely unmount it. Physical USB retention testing and the long-term signing-key trust model remain release requirements.
@@ -49,6 +50,8 @@ flowchart TD
 
 The backend runs as root because raw block access and firmware erase commands require it. Chromium runs as the separate `dzap` user. The backend listens only on loopback, and browser-origin checks restrict API and WebSocket use to the local development and live-USB origins.
 
+For team presentations and design review, open the standalone [system architecture](diagrams/dzap-system.html), [wipe workflow](diagrams/wipe-workflow.html), or [recovery workflow](diagrams/recovery-workflow.html). The files include light/dark themes, selectable views, and export controls without needing a server.
+
 ## Reading guide
 
 | Document | What it explains |
@@ -64,6 +67,7 @@ The backend runs as root because raw block access and firmware erase commands re
 | [Interface options](interfaces.md) | Measured browser/TUI resource tradeoffs and the native-GUI decision. |
 | [Testing](testing.md) | The 140 Rust tests, QEMU suites, what each layer proves, and what remains untested. |
 | [Roadmap](roadmap.md) | Remaining work ranked for a bootable-USB product and explicit out-of-scope work. |
+| [Shareable diagrams](diagrams/README.md) | Standalone architecture, wipe, and recovery visuals plus their editable Archify sources. |
 
 ## Terms used in these documents
 
@@ -90,3 +94,5 @@ The backend runs as root because raw block access and firmware erase commands re
 Method names describe the command or overwrite pattern DZap actually executes. DZap does not assign a sanitization class or make a compliance claim from the command name alone. A verified job proves what this build requested and checked; it does not prove that every controller implements firmware commands correctly. Real hardware validation, documented device coverage, operational procedures, and evidence retention are required before making formal compliance claims.
 
 The current Android discovery code remains in the Rust backend, but no mobile wipe method is exposed because DZap cannot yet prove a completed factory reset. The live-USB product target refers to the platform DZap runs on; it does not turn an unverifiable mobile reset into a supported sanitization method.
+
+The Secure Boot build uses a project-owner key. It authenticates the UEFI boot manager and the unified kernel image after that key is enrolled in firmware. It does not inherit the factory trust found on ordinary consumer machines, and the external ArchISO SquashFS remains outside the UKI signature. The feature is suitable for an enrolled-key demonstration; full root-filesystem integrity, key custody, rotation, and revocation remain release-hardening work.
