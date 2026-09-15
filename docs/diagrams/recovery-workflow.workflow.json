@@ -6,6 +6,12 @@
     "quality_profile": "showcase",
     "views": [
       {
+        "id": "media-routing",
+        "label": "Media and volume routing",
+        "focus": ["assess", "destination", "plan", "image", "volumes"],
+        "note": "HDD, SATA SSD, NVMe, and USB sources all use the same read-only image-first path; volume condition chooses the next step."
+      },
+      {
         "id": "protect-source",
         "label": "Protect the source",
         "focus": ["assess", "destination", "plan", "image"],
@@ -22,6 +28,12 @@
         "label": "Recover and prove",
         "focus": ["volumes", "method", "recover", "manifest"],
         "note": "Named-file recovery is preferred; raw carving remains an explicit fallback."
+      },
+      {
+        "id": "file-coverage",
+        "label": "Recoverable file types",
+        "focus": ["method", "recover", "manifest"],
+        "note": "Filesystem copy keeps any readable regular file; PhotoRec carves every signature family enabled by the packaged build."
       }
     ]
   },
@@ -40,7 +52,7 @@
     {"id": "destination", "lane": "operator", "col": 0, "type": "frontend", "label": "Choose Destination", "sublabel": "separate drive", "width": 132},
     {"id": "plan", "lane": "system", "col": 1, "type": "security", "label": "Bind Both Drives", "sublabel": "identity · space · quiet", "width": 132},
     {"id": "image", "lane": "system", "col": 2, "type": "database", "label": "ddrescue Image", "sublabel": "image + map", "tag": "resumable"},
-    {"id": "volumes", "lane": "system", "col": 3, "type": "backend", "label": "Inspect Image", "sublabel": "read-only volumes", "width": 124},
+    {"id": "volumes", "lane": "system", "col": 3, "type": "security", "label": "Inspect + Route", "sublabel": "filesystem · crypto · raw", "width": 132},
     {"id": "method", "lane": "operator", "col": 3, "type": "frontend", "label": "Choose Method", "sublabel": "copy or carve"},
     {"id": "recover", "lane": "system", "col": 4, "type": "backend", "label": "Recover Files", "sublabel": "copy or PhotoRec", "width": 120},
     {"id": "manifest", "lane": "system", "col": 5, "type": "security", "label": "Hash Manifest", "sublabel": "paths · sizes · SHA-256", "width": 116}
@@ -50,27 +62,38 @@
     {"from": "destination", "to": "plan", "label": "selected media"},
     {"from": "plan", "to": "image", "label": "revalidated reservation", "variant": "security"},
     {"from": "image", "to": "volumes", "label": "image complete", "variant": "emphasis"},
-    {"from": "volumes", "to": "method"},
+    {"from": "volumes", "to": "method", "label": "available methods"},
     {"from": "method", "to": "recover", "label": "selected method", "variant": "emphasis"},
     {"from": "recover", "to": "manifest", "label": "recovered files"}
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "Source Preservation",
+      "title": "Media + Volume Routing",
       "items": [
-        "DZap never mounts or repairs the physical source",
-        "A completed image removes the source from extraction work",
-        "Pause or interruption retains the image and ddrescue map for resume"
+        "HDD / SATA SSD / NVMe / USB → read-only ddrescue image",
+        "LUKS / BitLocker → image first, then temporary read-only unlock",
+        "ext2/3/4 · XFS · Btrfs · FAT/exFAT · NTFS → filesystem copy",
+        "Damaged / unmountable / raw volume → PhotoRec carving"
       ]
     },
     {
       "dot": "emerald",
-      "title": "Recovery Evidence",
+      "title": "Recovery Methods",
       "items": [
-        "Jobs bind the source, destination, image, map, and outputs",
-        "Filesystem copy is preferred; PhotoRec is the raw-carving fallback",
-        "Every regular output file is represented in the manifest"
+        "TestDisk /list → read-only partition analysis only",
+        "Filesystem copy → preserves readable names and directories",
+        "PhotoRec → signature carving; names and folders are usually lost"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Recoverable File Coverage",
+      "items": [
+        "Filesystem copy → every readable regular file, regardless of extension",
+        "Photos → JPG · PNG · TIFF · camera RAW families",
+        "Documents + archives → PDF · Office · HTML · ZIP · 7z",
+        "Audio + video → WAV · AVI · MP3 · MP4 and other built-in signatures"
       ]
     }
   ]
