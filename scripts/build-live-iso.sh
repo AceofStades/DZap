@@ -141,12 +141,6 @@ if [[ $SECURE_BOOT == 1 ]]; then
         > "$PROFILE_DIR/airootfs/root/dzap-secure-boot/cmdline"
     chmod 0600 "$PROFILE_DIR/airootfs/root/dzap-secure-boot/cmdline"
 
-    install -d -m 0755 "$PROFILE_DIR/efiboot/loader/keys"
-    openssl x509 \
-        -in "$SECURE_BOOT_CERT" \
-        -outform DER \
-        -out "$PROFILE_DIR/efiboot/loader/keys/dzap-secure-boot.cer"
-
     install -d -m 0755 "$PROFILE_DIR/airootfs/usr/share/dzap"
     cert_fingerprint=$(openssl x509 -in "$SECURE_BOOT_CERT" -noout -fingerprint -sha256 | cut -d= -f2)
     cat > "$PROFILE_DIR/airootfs/usr/share/dzap/secure-boot.json" <<EOF
@@ -154,7 +148,8 @@ if [[ $SECURE_BOOT == 1 ]]; then
   "schemaVersion": 1,
   "mode": "owner-key",
   "certificateSha256Fingerprint": "$cert_fingerprint",
-  "enrollmentFile": "/loader/keys/dzap-secure-boot.cer"
+  "enrollmentArtifact": "dzap-secure-boot.cer",
+  "enrollmentArtifactLocation": "beside-iso"
 }
 EOF
 fi
@@ -204,9 +199,18 @@ if [[ $SECURE_BOOT == 1 ]]; then
         echo "Signed ISO was not created in $OUTPUT_DIR" >&2
         exit 1
     fi
+    enrollment_certificate="$OUTPUT_DIR/dzap-secure-boot.cer"
+    enrollment_certificate_tmp=$(mktemp "$OUTPUT_DIR/.dzap-secure-boot.cer.XXXXXX")
+    openssl x509 \
+        -in "$SECURE_BOOT_CERT" \
+        -outform DER \
+        -out "$enrollment_certificate_tmp"
+    chmod 0644 "$enrollment_certificate_tmp"
+    mv -f "$enrollment_certificate_tmp" "$enrollment_certificate"
     "$REPO_ROOT/scripts/verify-secure-iso.py" \
         "$signed_iso" \
-        --certificate "$SECURE_BOOT_CERT"
+        --certificate "$SECURE_BOOT_CERT" \
+        --enrollment-certificate "$enrollment_certificate"
 fi
 
 echo "==> ISO ready in $OUTPUT_DIR"
