@@ -1,0 +1,77 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Image-First Data Recovery Workflow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "protect-source",
+        "label": "Protect the source",
+        "focus": ["assess", "destination", "plan", "image"],
+        "note": "The source stays read-only and every later operation uses the image."
+      },
+      {
+        "id": "resume-image",
+        "label": "Pause and resume imaging",
+        "focus": ["image", "plan"],
+        "note": "The ddrescue map preserves progress while both drive identities are revalidated."
+      },
+      {
+        "id": "recover-files",
+        "label": "Recover and prove",
+        "focus": ["volumes", "method", "recover", "manifest"],
+        "note": "Named-file recovery is preferred; raw carving remains an explicit fallback."
+      }
+    ]
+  },
+  "lanes": [
+    {"id": "operator", "label": "Operator choices"},
+    {"id": "system", "label": "Rust backend + recovery artifacts"}
+  ],
+  "phases": [
+    {"id": "prepare", "label": "Assess + plan", "fromCol": 0, "toCol": 1},
+    {"id": "capture", "label": "Create image", "fromCol": 2, "toCol": 2, "variant": "security"},
+    {"id": "extract", "label": "Inspect + recover", "fromCol": 3, "toCol": 5, "variant": "emphasis"}
+  ],
+  "mainPath": ["assess", "destination", "plan", "image", "volumes", "method", "recover", "manifest"],
+  "nodes": [
+    {"id": "assess", "lane": "system", "col": 0, "type": "security", "label": "Assess Source", "sublabel": "signatures · crypto · health", "tag": "read-only", "width": 132},
+    {"id": "destination", "lane": "operator", "col": 0, "type": "frontend", "label": "Choose Destination", "sublabel": "separate drive", "width": 132},
+    {"id": "plan", "lane": "system", "col": 1, "type": "security", "label": "Bind Both Drives", "sublabel": "identity · space · quiet", "width": 132},
+    {"id": "image", "lane": "system", "col": 2, "type": "database", "label": "ddrescue Image", "sublabel": "image + map", "tag": "resumable"},
+    {"id": "volumes", "lane": "system", "col": 3, "type": "backend", "label": "Inspect Image", "sublabel": "read-only volumes", "width": 124},
+    {"id": "method", "lane": "operator", "col": 3, "type": "frontend", "label": "Choose Method", "sublabel": "copy or carve"},
+    {"id": "recover", "lane": "system", "col": 4, "type": "backend", "label": "Recover Files", "sublabel": "copy or PhotoRec", "width": 120},
+    {"id": "manifest", "lane": "system", "col": 5, "type": "security", "label": "Hash Manifest", "sublabel": "paths · sizes · SHA-256", "width": 116}
+  ],
+  "edges": [
+    {"from": "assess", "to": "destination"},
+    {"from": "destination", "to": "plan", "label": "selected media"},
+    {"from": "plan", "to": "image", "label": "revalidated reservation", "variant": "security"},
+    {"from": "image", "to": "volumes", "label": "image complete", "variant": "emphasis"},
+    {"from": "volumes", "to": "method"},
+    {"from": "method", "to": "recover", "label": "selected method", "variant": "emphasis"},
+    {"from": "recover", "to": "manifest", "label": "recovered files"}
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Source Preservation",
+      "items": [
+        "DZap never mounts or repairs the physical source",
+        "A completed image removes the source from extraction work",
+        "Pause or interruption retains the image and ddrescue map for resume"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Recovery Evidence",
+      "items": [
+        "Jobs bind the source, destination, image, map, and outputs",
+        "Filesystem copy is preferred; PhotoRec is the raw-carving fallback",
+        "Every regular output file is represented in the manifest"
+      ]
+    }
+  ]
+}
