@@ -6,9 +6,15 @@
     "quality_profile": "showcase",
     "views": [
       {
+        "id": "device-routing",
+        "label": "Device-aware methods",
+        "focus": ["select", "preflight", "method", "authorize"],
+        "note": "Drive class chooses the candidate methods; live ATA/NVMe capability probes remove unsupported firmware actions."
+      },
+      {
         "id": "authorization",
         "label": "Identity-bound authorization",
-        "focus": ["select", "preflight", "authorize"],
+        "focus": ["preflight", "method", "authorize"],
         "note": "The operator can authorize only the exact identity returned by fresh preflight."
       },
       {
@@ -20,7 +26,7 @@
       {
         "id": "evidence",
         "label": "Durable evidence",
-        "focus": ["verify", "record", "certificate", "export"],
+        "focus": ["verify", "record", "certificate"],
         "note": "Hash-chained evidence and signed certificates are exported as one validated bundle."
       }
     ]
@@ -30,45 +36,56 @@
     {"id": "system", "label": "Rust backend + target storage"}
   ],
   "phases": [
-    {"id": "inspect", "label": "Inspect + bind", "fromCol": 0, "toCol": 1},
-    {"id": "execute", "label": "Execute + prove", "fromCol": 2, "toCol": 3, "variant": "security"},
-    {"id": "publish", "label": "Record + export", "fromCol": 4, "toCol": 5, "variant": "emphasis"}
+    {"id": "inspect", "label": "Classify + authorize", "fromCol": 0, "toCol": 2},
+    {"id": "execute", "label": "Execute + prove", "fromCol": 3, "toCol": 4, "variant": "security"},
+    {"id": "publish", "label": "Record + export", "fromCol": 5, "toCol": 5, "variant": "emphasis"}
   ],
-  "mainPath": ["select", "preflight", "authorize", "sanitize", "verify", "record", "certificate", "export"],
+  "mainPath": ["select", "preflight", "method", "authorize", "sanitize", "verify", "record", "certificate"],
   "nodes": [
     {"id": "select", "lane": "operator", "col": 0, "type": "frontend", "label": "Select Drive", "sublabel": "model + serial"},
-    {"id": "preflight", "lane": "system", "col": 0, "type": "security", "label": "Fresh Preflight", "sublabel": "topology + methods", "tag": "read-only", "width": 112},
-    {"id": "authorize", "lane": "system", "col": 1, "type": "security", "label": "Bind Identity", "sublabel": "fresh identity", "tag": "fail closed"},
-    {"id": "sanitize", "lane": "system", "col": 2, "type": "backend", "label": "Sanitize", "sublabel": "overwrite or firmware", "width": 120},
-    {"id": "verify", "lane": "system", "col": 3, "type": "security", "label": "Verify Result", "sublabel": "readback or status", "width": 132},
-    {"id": "record", "lane": "system", "col": 4, "type": "database", "label": "Persist Job", "sublabel": "hash chain"},
-    {"id": "certificate", "lane": "operator", "col": 4, "type": "security", "label": "Sign Certificate", "sublabel": "verified job only", "width": 120},
-    {"id": "export", "lane": "operator", "col": 5, "type": "external", "label": "Export Bundle", "sublabel": "atomic + verified"}
+    {"id": "preflight", "lane": "system", "col": 0, "type": "security", "label": "Classify + Preflight", "sublabel": "HDD · SATA SSD · NVMe · USB", "tag": "read-only", "width": 146},
+    {"id": "method", "lane": "operator", "col": 1, "type": "frontend", "label": "Choose Method", "sublabel": "compatible choices only", "width": 128},
+    {"id": "authorize", "lane": "system", "col": 2, "type": "security", "label": "Bind Identity", "sublabel": "fresh identity", "tag": "fail closed"},
+    {"id": "sanitize", "lane": "system", "col": 3, "type": "backend", "label": "Sanitize", "sublabel": "overwrite or firmware", "width": 120},
+    {"id": "verify", "lane": "system", "col": 4, "type": "security", "label": "Verify Result", "sublabel": "method-specific proof", "width": 132},
+    {"id": "record", "lane": "system", "col": 5, "type": "database", "label": "Persist Job", "sublabel": "hash chain"},
+    {"id": "certificate", "lane": "operator", "col": 5, "type": "security", "label": "Sign + Export", "sublabel": "atomic verified bundle", "width": 124}
   ],
   "edges": [
     {"from": "select", "to": "preflight"},
-    {"from": "preflight", "to": "authorize", "label": "approved identity", "variant": "emphasis"},
+    {"from": "preflight", "to": "method", "label": "supported methods"},
+    {"from": "method", "to": "authorize", "label": "approved identity", "variant": "emphasis"},
     {"from": "authorize", "to": "sanitize", "label": "reservation held", "variant": "security"},
     {"from": "sanitize", "to": "verify"},
     {"from": "verify", "to": "record", "label": "verified evidence", "variant": "emphasis"},
-    {"from": "record", "to": "certificate"},
-    {"from": "certificate", "to": "export", "label": "signed bundle", "variant": "emphasis"}
+    {"from": "record", "to": "certificate", "label": "signed bundle", "variant": "emphasis"}
   ],
   "cards": [
+    {
+      "dot": "cyan",
+      "title": "Device → Available Methods",
+      "items": [
+        "HDD → 1-pass zero or 3-pass pattern overwrite",
+        "USB / unknown → 2-pass complement overwrite",
+        "SATA SSD → advertised ATA Enhanced / Secure Erase; 1-pass fallback",
+        "NVMe → advertised Crypto / Block / Overwrite Sanitize; Format; 1-pass fallback"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Method → Verification",
+      "items": [
+        "Host overwrite → full final-pattern readback",
+        "ATA erase → security status plus sampled readback",
+        "NVMe Format / Sanitize → controller status plus sampled readback"
+      ]
+    },
     {
       "dot": "rose",
       "title": "False Success Is Blocked",
       "items": [
         "A successful storage command is still unverified",
         "A failed check, command, or proof ends without a certificate"
-      ]
-    },
-    {
-      "dot": "emerald",
-      "title": "Reviewable Output",
-      "items": [
-        "The job records the exact method and device identity",
-        "The export manifest is read back before success is shown"
       ]
     }
   ]
