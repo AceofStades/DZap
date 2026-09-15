@@ -108,6 +108,8 @@ The JSON-lines manifest stores the display path, lossless hexadecimal path bytes
 
 PhotoRec is the explicit fallback when filesystem metadata cannot be mounted or the filesystem copy did not find the needed files. DZap runs PhotoRec in scripted mode against the selected image volume. On ext-family filesystems it enables PhotoRec's ext2 allocation mode; other selections use a whole-volume signature scan.
 
+DZap enables PhotoRec's complete built-in file-signature set rather than filtering by extension. The packaged tool can therefore target more than 300 file families and 480 extensions, including common photos and camera RAW formats, audio/video, PDF and Office documents, HTML, and ZIP-family archives. The exact list follows the packaged PhotoRec version; filesystem copy is broader because it copies every readable regular file regardless of name or extension. See the [PhotoRec format documentation](https://www.cgsecurity.org/testdisk_doc/photorec.html) for the upstream list and its interpretation limits.
+
 Carving can recover content after names and directory metadata are gone, but filenames and folder structure are usually lost. DZap requires enough free capacity for the selected volume plus its reserve, keeps PhotoRec logs/session data inside the job directory, and hashes every regular carved file into a separate manifest after PhotoRec exits successfully.
 
 A completed filesystem-copy job can start a later PhotoRec attempt. Each attempt gets a new output directory and manifest, so fallback work does not replace earlier recovered files.

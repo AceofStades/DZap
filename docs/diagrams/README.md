@@ -5,8 +5,8 @@ These standalone diagrams describe the current DZap bootable-USB design. Open an
 | Diagram | Audience | Editable source |
 | --- | --- | --- |
 | [System architecture](dzap-system.html) | Boot trust chain, live runtime, privilege boundaries, storage operations, and evidence flow. | [`dzap-system.architecture.json`](dzap-system.architecture.json) |
-| [Wipe workflow](wipe-workflow.html) | Identity-bound preflight, sanitization, mandatory verification, hash-chained evidence, certificates, and export. | [`wipe-workflow.workflow.json`](wipe-workflow.workflow.json) |
-| [Recovery workflow](recovery-workflow.html) | Read-only assessment, separate destination, resumable ddrescue imaging, image inspection, extraction, and manifests. | [`recovery-workflow.workflow.json`](recovery-workflow.workflow.json) |
+| [Wipe workflow](wipe-workflow.html) | Device-class and capability routing, available sanitization methods, identity-bound preflight, verification, evidence, certificates, and export. | [`wipe-workflow.workflow.json`](wipe-workflow.workflow.json) |
+| [Recovery workflow](recovery-workflow.html) | Source-media and volume routing, resumable ddrescue imaging, filesystem copy versus PhotoRec, recoverable file families, and manifests. | [`recovery-workflow.workflow.json`](recovery-workflow.workflow.json) |
 
 The architecture diagram calls out the current Secure Boot limit: firmware and systemd-boot authenticate the signed UKI, while the external ArchISO SquashFS remains outside that signature.
 
