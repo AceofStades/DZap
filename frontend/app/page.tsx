@@ -6,13 +6,17 @@ import { Sidebar } from "@/components/sidebar";
 import { DeviceManager } from "@/components/device-manager";
 import { ProgressTracker } from "@/components/progress-tracker";
 import { CertificateManager } from "@/components/certificate-manager";
+import { ModeSelector } from "@/components/mode-selector";
+import { DataRecoveryView } from "@/components/data-recovery-view";
 import { ThemeProvider } from "@/components/theme-provider";
 import type { Device, StorageDevice, MobileDevice } from "@/lib/types";
 import { getDevices } from "@/lib/utils";
 
 export type TabType = "devices" | "progress" | "certificates";
+export type AppMode = "select" | "wiping" | "recovery";
 
 export default function Dashboard() {
+	const [appMode, setAppMode] = useState<AppMode>("select");
 	const [activeTab, setActiveTab] = useState<TabType>("devices");
 	const [allDevices, setAllDevices] = useState<Device[]>([]);
 	const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
@@ -76,32 +80,47 @@ export default function Dashboard() {
 
 	return (
 		<ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-			<div className="flex flex-col h-screen bg-background text-foreground">
-				<Header
-					activeTab={activeTab}
-					onTabChange={setActiveTab}
-					selectedDeviceName={selectedDevice?.name}
+			{appMode === "select" && (
+				<ModeSelector onSelectMode={(mode) => setAppMode(mode)} />
+			)}
+
+			{appMode === "recovery" && (
+				<DataRecoveryView
+					onBackToModeSelect={() => setAppMode("select")}
+					onSwitchToWiping={() => setAppMode("wiping")}
 				/>
-				<div className="flex flex-1 overflow-hidden">
-					<Sidebar
-						devices={allDevices}
-						selectedDevice={selectedDevice}
-						onSelectDevice={setSelectedDevice}
+			)}
+
+			{appMode === "wiping" && (
+				<div className="flex flex-col h-screen bg-background text-foreground">
+					<Header
 						activeTab={activeTab}
-						onRefresh={fetchDevices}
+						onTabChange={setActiveTab}
+						selectedDeviceName={selectedDevice?.name}
+						currentMode="wiping"
+						onBackToModeSelect={() => setAppMode("select")}
 					/>
-					<main className="flex-1 overflow-y-auto p-6">
-						{activeTab === "devices" && (
-							<DeviceManager
-								selectedDevice={selectedDevice}
-								onDeviceUpdate={fetchDevices}
-							/>
-						)}
-						{activeTab === "progress" && <ProgressTracker />}
-						{activeTab === "certificates" && <CertificateManager />}
-					</main>
+					<div className="flex flex-1 overflow-hidden">
+						<Sidebar
+							devices={allDevices}
+							selectedDevice={selectedDevice}
+							onSelectDevice={setSelectedDevice}
+							activeTab={activeTab}
+							onRefresh={fetchDevices}
+						/>
+						<main className="flex-1 overflow-y-auto p-6">
+							{activeTab === "devices" && (
+								<DeviceManager
+									selectedDevice={selectedDevice}
+									onDeviceUpdate={fetchDevices}
+								/>
+							)}
+							{activeTab === "progress" && <ProgressTracker />}
+							{activeTab === "certificates" && <CertificateManager />}
+						</main>
+					</div>
 				</div>
-			</div>
+			)}
 		</ThemeProvider>
 	);
 }

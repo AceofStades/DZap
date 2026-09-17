@@ -5,7 +5,7 @@
 	"scripts": {
 		"start:frontend": "concurrently -k \"npm:dev:frontend\" \"npm:dev:electron\"",
 		"dev:frontend": "cd frontend && npm run dev",
-		"dev:electron": "wait-on http://localhost:3000 && cross-env GDK_BACKEND=wayland electron . --enable-features=UseOzonePlatform --ozone-platform=wayland",
+		"dev:electron": "wait-on http://localhost:3000 && cross-env GDK_BACKEND=wayland electron . --no-sandbox --enable-features=UseOzonePlatform --ozone-platform=wayland",
 		"build:frontend": "cd frontend && npm run build",
 		"build:electron": "electron-builder",
 		"build:app": "npm run build:frontend && npm run build:electron"

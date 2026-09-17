@@ -1,6 +1,6 @@
 "use client"
 
-import { Shield, Moon, Sun } from "lucide-react"
+import { Shield, Moon, Sun, ArrowLeft } from "lucide-react"
 import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -10,9 +10,11 @@ interface HeaderProps {
   activeTab: TabType
   onTabChange: (tab: TabType) => void
   selectedDeviceName?: string
+  currentMode?: "wiping" | "recovery"
+  onBackToModeSelect?: () => void
 }
 
-export function Header({ activeTab, onTabChange, selectedDeviceName }: HeaderProps) {
+export function Header({ activeTab, onTabChange, selectedDeviceName, onBackToModeSelect }: HeaderProps) {
   const { theme, setTheme } = useTheme()
 
   const tabs = [
@@ -24,7 +26,20 @@ export function Header({ activeTab, onTabChange, selectedDeviceName }: HeaderPro
   return (
     <header className="sticky top-0 z-50 bg-card border-b border-border shadow-sm">
       <div className="flex items-center justify-between px-6 py-4">
-        <div className="flex items-center space-x-8">
+        <div className="flex items-center space-x-6">
+          {onBackToModeSelect && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onBackToModeSelect}
+              className="text-muted-foreground hover:text-foreground flex items-center space-x-1.5 px-2.5 border border-border/60 hover:bg-accent"
+              title="Return to Mode Selection"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span className="text-xs font-semibold hidden sm:inline">Change Mode</span>
+            </Button>
+          )}
+
           <div className="flex items-center space-x-2">
             <Shield className="h-6 w-6 text-primary" />
             <span className="text-xl font-semibold text-foreground">DZAP Pro</span>
