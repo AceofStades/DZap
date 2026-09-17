@@ -18,6 +18,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 KERNEL_PATH = "arch/boot/x86_64/vmlinuz-linux"
 INITRAMFS_PATH = "arch/boot/x86_64/initramfs-linux.img"
 SYSLINUX_CONFIG = "boot/syslinux/archiso_sys-linux.cfg"
+SYSLINUX_MENU = "boot/syslinux/archiso_sys.cfg"
+UEFI_LOADER = "loader/loader.conf"
+UEFI_ENTRY = "loader/entries/01-dzap.conf"
 
 
 def latest_iso() -> Path | None:
@@ -43,6 +46,23 @@ def boot_and_check(image: Path, timeout: int) -> None:
         require_command(command)
 
     syslinux = read_iso_file(image, SYSLINUX_CONFIG).decode()
+    syslinux_menu = read_iso_file(image, SYSLINUX_MENU).decode()
+    uefi_loader = read_iso_file(image, UEFI_LOADER).decode()
+    uefi_entry = read_iso_file(image, UEFI_ENTRY).decode()
+    boot_configuration = "\n".join(
+        (syslinux, syslinux_menu, uefi_loader, uefi_entry)
+    )
+    if "Arch Linux install medium" in boot_configuration:
+        raise RuntimeError("generated image still contains the Arch installer boot entry")
+    if "LABEL dzap" not in syslinux or "DEFAULT dzap" not in syslinux_menu:
+        raise RuntimeError("generated BIOS configuration does not default to DZap")
+    if "TIMEOUT 1" not in syslinux_menu or "PROMPT 0" not in syslinux_menu:
+        raise RuntimeError("generated BIOS configuration is not set to boot immediately")
+    if "default 01-dzap.conf" not in uefi_loader or "timeout 0" not in uefi_loader:
+        raise RuntimeError("generated UEFI configuration is not set to boot DZap immediately")
+    if "title    DZap Secure Wipe" not in uefi_entry:
+        raise RuntimeError("generated UEFI entry is not branded for DZap")
+
     uuid_match = re.search(r"archisosearchuuid=([^\s]+)", syslinux)
     if uuid_match is None:
         raise RuntimeError("could not find the ArchISO search UUID")
@@ -112,9 +132,22 @@ def boot_and_check(image: Path, timeout: int) -> None:
                     "if systemctl is-active --quiet dzap-backend && "
                     "grep -q '<html' /tmp/dzap-index && "
                     "test \"$(stat -c %U /run/dzap)\" = dzap && "
+                    "test -x /usr/local/bin/dzap-tui && "
+                    "command -v cryptsetup >/dev/null && "
+                    "command -v ddrescue >/dev/null && "
+                    "command -v photorec >/dev/null && "
+                    "command -v testdisk >/dev/null && "
+                    "systemctl is-active --quiet getty@tty2 && "
+                    "pgrep -x dzap-tui >/dev/null && "
                     "curl -fsS http://127.0.0.1:8080/api/drives | "
                     "jq -e '.storage | any(.name == \"/dev/vda\" and "
                     ".isOSDrive == true and .isMounted == true)' >/dev/null && "
+                    "curl -fsS -H 'Content-Type: application/json' "
+                    "-d '{\"devicePath\":\"/dev/vda\"}' "
+                    "http://127.0.0.1:8080/api/recovery/assess | "
+                    "jq -e '.decision == \"blocked\" and "
+                    "(.checks | any(.code == \"protected_system\" and "
+                    ".status == \"blocked\"))' >/dev/null && "
                     "true; then echo DZAP_LIVE_SMOKE_$ok; else "
                     "systemctl status --no-pager dzap-backend; "
                     "journalctl --no-pager -u dzap-backend -n 50; "

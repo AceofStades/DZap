@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Verified Wipe Workflow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "device-routing",
+        "label": "Drive type to wipe method",
+        "focus": ["inspect", "overwrite-methods", "firmware-methods"],
+        "note": "Drive classification exposes only compatible methods; live ATA and NVMe capability probes remove unsupported firmware actions."
+      },
+      {
+        "id": "authorization",
+        "label": "Identity-bound execution",
+        "focus": ["inspect", "authorize", "overwrite-methods", "firmware-methods"],
+        "note": "The chosen method is authorized against a fresh device identity immediately before execution."
+      },
+      {
+        "id": "verification",
+        "label": "Method-specific verification",
+        "focus": ["overwrite-methods", "firmware-methods", "overwrite-proof", "firmware-proof"],
+        "note": "Every method leads to its own proof path; command completion alone cannot become success."
+      },
+      {
+        "id": "evidence",
+        "label": "Durable evidence",
+        "focus": ["overwrite-proof", "firmware-proof", "publish"],
+        "note": "Only verified results enter the hash chain and signed certificate bundle."
+      }
+    ]
+  },
+  "lanes": [
+    {"id": "control", "label": "Control + evidence"},
+    {"id": "overwrite", "label": "Host overwrite path"},
+    {"id": "firmware", "label": "SSD firmware path"}
+  ],
+  "phases": [
+    {"id": "route", "label": "Classify + authorize", "fromCol": 0, "toCol": 1},
+    {"id": "run", "label": "Choose + execute", "fromCol": 2, "toCol": 3, "variant": "security"},
+    {"id": "prove", "label": "Verify by method", "fromCol": 4, "toCol": 4, "variant": "emphasis"},
+    {"id": "record", "label": "Record + export", "fromCol": 5, "toCol": 5, "variant": "emphasis"}
+  ],
+  "mainPath": ["inspect", "authorize", "overwrite-methods", "overwrite-proof", "publish"],
+  "nodes": [
+    {"id": "inspect", "lane": "control", "col": 0, "type": "frontend", "label": "Select + Preflight", "sublabel": "model · serial · transport", "tag": "read-only", "width": 140},
+    {"id": "authorize", "lane": "control", "col": 1, "type": "security", "label": "Bind Identity", "sublabel": "authorize compatible choice", "tag": "fail closed", "width": 136},
+    {"id": "overwrite-methods", "lane": "overwrite", "col": 2, "type": "backend", "label": "HDD: 1-pass / 3-pass", "sublabel": "USB / unknown: 2-pass", "width": 170},
+    {"id": "firmware-methods", "lane": "firmware", "col": 2, "type": "backend", "label": "SATA: ATA Enhanced / Secure", "sublabel": "NVMe: Sanitize / Format", "tag": "1-pass fallback", "width": 190},
+    {"id": "overwrite-proof", "lane": "overwrite", "col": 4, "type": "security", "label": "Overwrite Verification", "sublabel": "full final-pattern readback", "width": 160},
+    {"id": "firmware-proof", "lane": "firmware", "col": 4, "type": "security", "label": "Firmware Verification", "sublabel": "controller status + sampled readback", "tag": "ATA + NVMe", "width": 170},
+    {"id": "publish", "lane": "control", "col": 5, "type": "database", "label": "Persist + Sign", "sublabel": "hash chain · verified certificate", "width": 150}
+  ],
+  "edges": [
+    {"from": "inspect", "to": "authorize", "label": "fresh drive identity", "variant": "security"},
+    {"from": "authorize", "to": "overwrite-methods", "label": "HDD / USB"},
+    {"from": "authorize", "to": "firmware-methods", "label": "SATA / NVMe"},
+    {"from": "overwrite-methods", "to": "overwrite-proof", "label": "execute"},
+    {"from": "firmware-methods", "to": "firmware-proof", "label": "firmware command"},
+    {"from": "firmware-methods", "to": "overwrite-proof", "label": "1-pass fallback"},
+    {"from": "overwrite-proof", "to": "publish", "label": "verified"},
+    {"from": "firmware-proof", "to": "publish", "label": "verified"}
+  ]
+}

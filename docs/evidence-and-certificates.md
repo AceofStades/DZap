@@ -204,22 +204,33 @@ With `?format=pdf`, the backend generates a minimal A4 PDF containing:
 
 The PDF is generated directly in Rust and returned with `Content-Type: application/pdf` and an attachment filename. The JSON object remains the canonical machine-readable form.
 
-## Live-USB retention limitation
+## Persistent export bundles
+
+The backend can export verified evidence to a separately mounted removable volume. Destination discovery is independent from wipe-target discovery and admits writable FAT32, exFAT, and ext4 filesystems on removable or USB-transport drives. It excludes the running system, ArchISO boot media, read-only devices, internal non-removable drives, unsupported filesystems, and drives reserved by another storage operation.
+
+Unmounted destinations are mounted only after an explicit request. The request carries the complete discovered device and mount identity; the backend reruns `lsblk` and requires an exact match before invoking `mount`. Backend-created mounts live below `/run/dzap-evidence` and use `nodev,nosuid,noexec`.
+
+Each export is a directory named `DZap-Evidence/<job-id>` containing:
+
+| File | Contents |
+| --- | --- |
+| `job.json` | Complete server-owned job, verification result, and event chain. |
+| `certificate.json` | Canonical signed certificate and QR payload. |
+| `certificate.pdf` | Human-readable certificate with the QR representation. |
+| `public-key.pem` | Public verification key. The private key is never exported. |
+| `manifest.json` | Evidence format version, application version, export time, key fingerprint, SHA-256/size for every other file, and an RSA signature over those fields. |
+
+Files are written and synced inside a randomly named temporary directory on the destination filesystem. The backend syncs the directory, renames it to the final job ID, syncs its parent, then reads the completed bundle back. Validation checks the exact file set, sizes and hashes, signed manifest, job event chain, verified job state, certificate signature, certificate/job binding, public key, and key fingerprint before success is returned. Signing the manifest prevents a changed PDF or metadata field from being hidden by recomputing its file hash.
+
+Export is idempotent. If the final directory already exists, DZap validates it and compares its contents with current server-owned evidence. A valid identical bundle is returned; a changed or partial bundle is rejected and never silently replaced.
+
+## Remaining live-USB retention limitation
 
 The service sets `HOME=/root`, so the live system writes its key, jobs, and certificates under `/root/.config/DZap`. ArchISO provides a writable overlay, allowing state to survive backend restarts during the current boot.
 
-That overlay is volatile. Removing power or rebooting loses the key and stored records. Browser downloads also land under the kiosk user's volatile home unless the operator explicitly chooses mounted persistent media through a supported export workflow.
+That overlay is volatile. Removing power or rebooting still loses the in-session key and stored records. The dashboard now lets the operator select removable media, export job JSON, signed JSON/PDF certificates, the public key, and a signed hash manifest, then safely unmount the destination. Until this path is tested on physical removable media, operators must verify the reported bundle path and successful unmount before shutdown.
 
-The planned solution must export an evidence bundle to a separate writable volume and make the destination explicit. It should include at least:
-
-- Job JSON.
-- Certificate JSON.
-- Certificate PDF.
-- Firmware-status raw material where applicable.
-- Public-key fingerprint and bundle manifest.
-- Hashes for every exported file.
-
-Until that exists, operators must treat a successful in-session certificate as temporary.
+The current bundle records firmware-status hashes already present in `VerificationResult`; it does not preserve additional raw `hdparm` or `nvme` command output. A stable organizational signing identity and standalone offline verifier also remain release work.
 
 ## What the evidence proves
 
@@ -237,4 +248,4 @@ It does not independently prove:
 - That inaccessible remapped flash cells were physically cleared.
 - That the live system clock was externally trusted.
 - That the embedded public key belongs to a particular organization.
-- That evidence survived after the live session ended.
+- That an operator actually exported and retained the evidence after the live session ended.

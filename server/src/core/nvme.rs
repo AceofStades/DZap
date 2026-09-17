@@ -38,9 +38,9 @@ impl NvmeSanitizeAction {
 
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::CryptoErase => "Purge: NVMe Sanitize (Crypto Erase)",
-            Self::BlockErase => "Purge: NVMe Sanitize (Block Erase)",
-            Self::Overwrite => "Purge: NVMe Sanitize (Overwrite)",
+            Self::CryptoErase => "NVMe Sanitize (Crypto Erase)",
+            Self::BlockErase => "NVMe Sanitize (Block Erase)",
+            Self::Overwrite => "NVMe Sanitize (Overwrite)",
         }
     }
 

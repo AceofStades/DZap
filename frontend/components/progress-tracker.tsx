@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
 	Play,
-	Pause,
 	CheckCircle,
 	AlertCircle,
 	Clock,
@@ -12,7 +11,12 @@ import {
 	Square,
 	Trash2,
 	Download,
+	Loader2,
+	RefreshCw,
+	Wifi,
+	WifiOff,
 } from "lucide-react";
+import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
 import {
 	Card,
@@ -29,6 +33,7 @@ import { cn } from "@/lib/utils";
 import {
 	abortWipe,
 	generateCertificate,
+	getWebSocketUrl,
 	getWipeJob,
 	getWipeJobs,
 } from "@/lib/utils";
@@ -39,7 +44,8 @@ interface WipeJob {
 	deviceName: string;
 	deviceModel: string;
 	method: string;
-	status: "running" | "paused" | "verifying" | "verified" | "failed" | "queued";
+	methodName: string;
+	status: "running" | "verifying" | "verified" | "failed";
 	progress: number;
 	currentPass: number;
 	totalPasses: number;
@@ -48,6 +54,44 @@ interface WipeJob {
 	speed: string;
 	evidenceHash: string;
 	failure: string | null;
+}
+
+type ConnectionState = "connecting" | "connected" | "reconnecting";
+
+const MAX_RECONNECT_DELAY_MS = 10_000;
+const MAX_LOG_ENTRIES = 500;
+
+function isTerminalStatus(status: unknown) {
+	return status === "verified" || status === "failed";
+}
+
+function isHostOverwrite(method: string) {
+	return method.startsWith("overwrite_");
+}
+
+function methodLabel(method: string) {
+	switch (method) {
+		case "nvme_format":
+			return "NVMe Format";
+		case "nvme_sanitize_crypto":
+			return "NVMe Sanitize (Crypto Erase)";
+		case "nvme_sanitize_block":
+			return "NVMe Sanitize (Block Erase)";
+		case "nvme_sanitize_overwrite":
+			return "NVMe Sanitize (Overwrite)";
+		case "sata_secure_erase":
+			return "ATA Secure Erase";
+		case "sata_secure_erase_enhanced":
+			return "ATA Enhanced Secure Erase";
+		case "overwrite_1_pass":
+			return "1-Pass Overwrite";
+		case "overwrite_2_pass":
+			return "2-Pass Complement Overwrite";
+		case "overwrite_3_pass":
+			return "3-Pass Pattern Overwrite";
+		default:
+			return method;
+	}
 }
 
 interface LogEntry {
@@ -64,6 +108,7 @@ function jobView(record: WipeJobRecord): WipeJob {
 		deviceName: record.devicePath,
 		deviceModel: record.deviceModel,
 		method: record.method,
+		methodName: methodLabel(record.method),
 		status: record.status,
 		progress:
 			record.status === "verifying" || record.status === "verified" ? 100 : 0,
@@ -71,7 +116,7 @@ function jobView(record: WipeJobRecord): WipeJob {
 		totalPasses: 0,
 		startTime: record.startedAt,
 		estimatedCompletion: "",
-		speed: "0 MB/s",
+		speed: "",
 		evidenceHash: record.evidenceHash,
 		failure: record.failure,
 	};
@@ -81,52 +126,134 @@ export function ProgressTracker() {
 	const [jobs, setJobs] = useState<Map<string, WipeJob>>(new Map());
 	const [logs, setLogs] = useState<LogEntry[]>([]);
 	const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+	const [jobsLoading, setJobsLoading] = useState(true);
+	const [jobsError, setJobsError] = useState<string | null>(null);
+	const [connectionState, setConnectionState] =
+		useState<ConnectionState>("connecting");
+	const [abortNotice, setAbortNotice] = useState<{
+		jobId: string;
+		message: string;
+	} | null>(null);
 	const [certificateMessage, setCertificateMessage] = useState<string | null>(
 		null,
 	);
 	const ws = useRef<WebSocket | null>(null);
+	const jobsRef = useRef<Map<string, WipeJob>>(new Map());
+	const jobsLoadSequence = useRef(0);
+	const pendingJobRefreshes = useRef<Set<string>>(new Set());
 	const searchParams = useSearchParams();
+	const router = useRouter();
+	const requestedJobId = searchParams.get("jobId");
+	const requestedJobIdRef = useRef(requestedJobId);
+	requestedJobIdRef.current = requestedJobId;
 
-	useEffect(() => {
-		let cancelled = false;
-		const requestedJobId = searchParams.get("jobId");
-		getWipeJobs()
-			.then(async (records) => {
-				if (
-					requestedJobId &&
-					!records.some((record) => record.id === requestedJobId)
-				) {
-					records = [await getWipeJob(requestedJobId), ...records];
+	const loadJobs = useCallback(async (preferredJobId?: string | null) => {
+		const sequence = ++jobsLoadSequence.current;
+		setJobsLoading(true);
+		setJobsError(null);
+		try {
+			let records = await getWipeJobs();
+			let preferredJobError: string | null = null;
+			if (
+				preferredJobId &&
+				!records.some((record) => record.id === preferredJobId)
+			) {
+				try {
+					records = [await getWipeJob(preferredJobId), ...records];
+				} catch (error) {
+					preferredJobError =
+						error instanceof Error
+							? error.message
+							: `Wipe job ${preferredJobId} could not be loaded.`;
 				}
-				if (cancelled) return;
-				setJobs(
-					new Map(
-						records.map((record) => [record.id, jobView(record)]),
-					),
-				);
-				setSelectedJobId(
-					requestedJobId || records.at(0)?.id || null,
-				);
-			})
-			.catch((error) => {
-				if (!cancelled) console.error("Failed to load wipe jobs:", error);
+			}
+
+			if (sequence !== jobsLoadSequence.current) return;
+			const loadedJobs = new Map(
+				records.map((record) => {
+					const loaded = jobView(record);
+					const current = jobsRef.current.get(record.id);
+					if (record.status === "running" && current?.status === "running") {
+						loaded.progress = current.progress;
+						loaded.currentPass = current.currentPass;
+						loaded.totalPasses = current.totalPasses;
+						loaded.speed = current.speed;
+						loaded.estimatedCompletion = current.estimatedCompletion;
+					}
+					return [record.id, loaded] as const;
+				}),
+			);
+			jobsRef.current = loadedJobs;
+			setJobs(loadedJobs);
+			setSelectedJobId((current) => {
+				if (preferredJobId && loadedJobs.has(preferredJobId)) {
+					return preferredJobId;
+				}
+				if (current && loadedJobs.has(current)) return current;
+				return records.at(0)?.id || null;
 			});
-		return () => {
-			cancelled = true;
-		};
-	}, [searchParams]);
+			setJobsError(preferredJobError);
+		} catch (error) {
+			if (sequence !== jobsLoadSequence.current) return;
+			setJobsError(
+				error instanceof Error
+					? error.message
+					: "Failed to load authoritative wipe jobs.",
+			);
+		} finally {
+			if (sequence === jobsLoadSequence.current) setJobsLoading(false);
+		}
+	}, []);
+
+	const refreshJob = useCallback(async (jobId: string) => {
+		if (pendingJobRefreshes.current.has(jobId)) return;
+		pendingJobRefreshes.current.add(jobId);
+		try {
+			const record = await getWipeJob(jobId);
+			setJobs((previous) => {
+				const updated = new Map(previous);
+				updated.set(record.id, jobView(record));
+				jobsRef.current = updated;
+				return updated;
+			});
+			setSelectedJobId((current) => current || record.id);
+		} catch (error) {
+			console.error(`Failed to refresh wipe job ${jobId}:`, error);
+		} finally {
+			pendingJobRefreshes.current.delete(jobId);
+		}
+	}, []);
 
 	useEffect(() => {
-		ws.current = new WebSocket("ws://localhost:8080/ws");
+		if (requestedJobId && jobsRef.current.has(requestedJobId)) {
+			jobsLoadSequence.current += 1;
+			setJobsLoading(false);
+			setSelectedJobId(requestedJobId);
+			setJobsError(null);
+			return;
+		}
+		void loadJobs(requestedJobId);
+	}, [loadJobs, requestedJobId]);
 
-		ws.current.onopen = () => console.log("WebSocket connected");
-		ws.current.onclose = () => console.log("WebSocket disconnected");
+	useEffect(() => {
+		let disposed = false;
+		let reconnectAttempt = 0;
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-		ws.current.onmessage = (event) => {
+		const appendLog = (entry: LogEntry) => {
+			setLogs((previous) => [
+				...previous.slice(-(MAX_LOG_ENTRIES - 1)),
+				entry,
+			]);
+		};
+
+		const handleMessage = (event: MessageEvent<string>) => {
 			try {
 				const data = JSON.parse(event.data);
 
-				if (data.jobId) {
+				if (typeof data.jobId === "string") {
+					const knownJob = jobsRef.current.get(data.jobId);
+					if (!knownJob) void refreshJob(data.jobId);
 					setJobs((prevJobs) => {
 						const newJobs = new Map(prevJobs);
 						const job = newJobs.get(data.jobId);
@@ -151,31 +278,22 @@ export function ProgressTracker() {
 									data.eta ?? job.estimatedCompletion,
 								deviceModel:
 									data.deviceModel || job.deviceModel,
-								method:
-									data.methodName || data.method || job.method,
+								method: data.method || job.method,
+								methodName: data.methodName || job.methodName,
 								evidenceHash:
 									data.evidenceHash || job.evidenceHash,
 								failure: data.error || job.failure,
 							};
 							newJobs.set(data.jobId, updatedJob);
 						}
+						jobsRef.current = newJobs;
 						return newJobs;
 					});
-					if (
-						data.status === "verified" ||
-						data.status === "failed"
-					) {
-						getWipeJob(data.jobId)
-							.then((record) => {
-								setJobs((previous) => {
-									const updated = new Map(previous);
-									updated.set(record.id, jobView(record));
-									return updated;
-								});
-							})
-							.catch((error) =>
-								console.error("Failed to refresh wipe job:", error),
-							);
+					if (isTerminalStatus(data.status)) {
+						setAbortNotice((current) =>
+							current?.jobId === data.jobId ? null : current,
+						);
+						void refreshJob(data.jobId);
 					}
 				}
 
@@ -191,7 +309,7 @@ export function ProgressTracker() {
 					message: data.message || data.error || event.data,
 					deviceId: data.jobId,
 				};
-				setLogs((prev) => [...prev, newLog]);
+				appendLog(newLog);
 			} catch (e) {
 				// Message is not JSON, treat as plain text log
 				const newLog: LogEntry = {
@@ -204,14 +322,63 @@ export function ProgressTracker() {
 							: "info",
 					message: event.data,
 				};
-				setLogs((prev) => [...prev, newLog]);
+				appendLog(newLog);
 			}
 		};
 
-		return () => {
-			ws.current?.close();
+		const connect = () => {
+			if (disposed) return;
+			setConnectionState(reconnectAttempt === 0 ? "connecting" : "reconnecting");
+
+			let socket: WebSocket;
+			try {
+				socket = new WebSocket(getWebSocketUrl());
+			} catch (error) {
+				console.error("Failed to create WebSocket:", error);
+				scheduleReconnect();
+				return;
+			}
+			ws.current = socket;
+
+			socket.onopen = () => {
+				if (disposed) return;
+				reconnectAttempt = 0;
+				setConnectionState("connected");
+				void loadJobs(requestedJobIdRef.current);
+			};
+			socket.onmessage = handleMessage;
+			socket.onerror = () => socket.close();
+			socket.onclose = () => {
+				if (disposed) return;
+				if (ws.current === socket) ws.current = null;
+				scheduleReconnect();
+			};
 		};
-	}, []);
+
+		const scheduleReconnect = () => {
+			if (disposed || reconnectTimer !== null) return;
+			reconnectAttempt += 1;
+			setConnectionState("reconnecting");
+			const delay = Math.min(
+				1_000 * 2 ** Math.min(reconnectAttempt - 1, 4),
+				MAX_RECONNECT_DELAY_MS,
+			);
+			reconnectTimer = setTimeout(() => {
+				reconnectTimer = null;
+				connect();
+			}, delay);
+		};
+
+		connect();
+
+		return () => {
+			disposed = true;
+			if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+			const socket = ws.current;
+			ws.current = null;
+			socket?.close();
+		};
+	}, [loadJobs, refreshJob]);
 
 	const activeJobs = Array.from(jobs.values());
 	const selectedJobData = selectedJobId ? jobs.get(selectedJobId) : null;
@@ -222,8 +389,6 @@ export function ProgressTracker() {
 		switch (status) {
 			case "running":
 				return <Play className="h-4 w-4 text-warning" />;
-			case "paused":
-				return <Pause className="h-4 w-4 text-muted-foreground" />;
 			case "verified":
 				return <CheckCircle className="h-4 w-4 text-success" />;
 			case "verifying":
@@ -239,8 +404,6 @@ export function ProgressTracker() {
 		switch (status) {
 			case "running":
 				return "bg-warning/20 text-warning";
-			case "paused":
-				return "bg-muted text-muted-foreground";
 			case "verified":
 				return "bg-success/20 text-success";
 			case "verifying":
@@ -274,13 +437,34 @@ export function ProgressTracker() {
 		: logs;
 
 	const handleAbortWipe = async (jobId: string) => {
+		const job = jobsRef.current.get(jobId);
+		setAbortNotice({ jobId, message: "Requesting abort..." });
 		try {
 			await abortWipe(jobId);
-			// Optionally, update job status locally for immediate feedback
+			setAbortNotice({
+				jobId,
+				message:
+					job && isHostOverwrite(job.method)
+						? "Abort requested. The host overwrite will stop between write chunks; wait for the final failed job record."
+						: "Abort requested. The local command will be stopped, but a drive may continue a firmware operation it already accepted; wait for the final job record.",
+			});
 		} catch (error) {
-			console.error("Failed to abort wipe:", error);
-			// TODO: Show error toast
+			setAbortNotice({
+				jobId,
+				message:
+					error instanceof Error ? error.message : "Failed to request abort.",
+			});
 		}
+	};
+
+	const selectJob = (jobId: string) => {
+		setSelectedJobId(jobId);
+		setCertificateMessage(null);
+		setAbortNotice(null);
+		const next = new URLSearchParams(searchParams.toString());
+		next.set("tab", "progress");
+		next.set("jobId", jobId);
+		router.replace(`/?${next.toString()}`, { scroll: false });
 	};
 
 	const handleGenerateCertificate = async (jobId: string) => {
@@ -324,30 +508,78 @@ export function ProgressTracker() {
 		setLogs([]);
 	};
 
+	const connectionLabel =
+		connectionState === "connected"
+			? "Live updates connected"
+			: connectionState === "connecting"
+				? "Connecting to live updates"
+				: "Reconnecting to live updates";
+
 	return (
 		<div className="space-y-6">
-			<div>
-				<h1 className="text-2xl font-bold text-foreground">
-					Wipe Progress
-				</h1>
-				<p className="text-muted-foreground">
-					Monitor active and completed data destruction operations
-				</p>
+			<div className="flex flex-wrap items-start justify-between gap-3">
+				<div>
+					<h1 className="text-2xl font-bold text-foreground">
+						Wipe Progress
+					</h1>
+					<p className="text-muted-foreground">
+						Monitor server-owned data destruction records
+					</p>
+				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<Badge
+						variant="outline"
+						className={cn(
+							"gap-1.5",
+							connectionState === "connected"
+								? "border-success/50 text-success"
+								: "border-warning/50 text-warning",
+						)}
+					>
+						{connectionState === "connected" ? (
+							<Wifi className="h-3.5 w-3.5" />
+						) : (
+							<WifiOff className="h-3.5 w-3.5" />
+						)}
+						{connectionLabel}
+					</Badge>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => void loadJobs(selectedJobId)}
+						disabled={jobsLoading}
+					>
+						{jobsLoading ? (
+							<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+						) : (
+							<RefreshCw className="mr-2 h-4 w-4" />
+						)}
+						Reload records
+					</Button>
+				</div>
 			</div>
 
+			{jobsError && (
+				<Alert variant="destructive">
+					<AlertCircle className="h-4 w-4" />
+					<AlertDescription>{jobsError}</AlertDescription>
+				</Alert>
+			)}
+
 			<div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-				{/* Jobs Overview */}
 				<div className="lg:col-span-2 space-y-4">
 					<Card className="component-border component-border-hover">
 						<CardHeader>
 							<CardTitle className="flex items-center space-x-2">
 								<Clock className="h-5 w-5" />
-								<span>Active Operations</span>
+								<span>Operation History</span>
 							</CardTitle>
 							<CardDescription>
-								{activeJobs.length === 0
+								{jobsLoading && activeJobs.length === 0
+									? "Loading authoritative wipe records..."
+									: activeJobs.length === 0
 									? "No active or recent wipe operations."
-									: "Current and recent wipe operations"}
+									: `${activeJobs.length} persisted wipe record${activeJobs.length === 1 ? "" : "s"}`}
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-4">
@@ -359,10 +591,7 @@ export function ProgressTracker() {
 										selectedJobId === job.id &&
 											"ring-2 ring-primary",
 									)}
-								onClick={() => {
-									setSelectedJobId(job.id);
-									setCertificateMessage(null);
-								}}
+									onClick={() => selectJob(job.id)}
 								>
 									<CardContent className="p-4">
 										<div className="space-y-3">
@@ -386,22 +615,23 @@ export function ProgressTracker() {
 													>
 														{job.status.toUpperCase()}
 													</Badge>
-													{job.status ===
-														"running" && (
-														<Button
-															variant="destructive"
-															size="sm"
-															onClick={() =>
-																handleAbortWipe(
-																	job.id,
-																)
-															}
-														>
-															<Square className="h-4 w-4 mr-2" />
-															Abort
-														</Button>
-													)}
-												</div>{" "}
+												{job.status === "running" && (
+													<Button
+														variant="destructive"
+														size="sm"
+														onClick={(event) => {
+															event.stopPropagation();
+															selectJob(job.id);
+															void handleAbortWipe(job.id);
+														}}
+													>
+														<Square className="mr-2 h-4 w-4" />
+														{isHostOverwrite(job.method)
+															? "Abort overwrite"
+															: "Request abort"}
+													</Button>
+												)}
+											</div>
 											</div>
 
 											<div className="space-y-2">
@@ -410,10 +640,10 @@ export function ProgressTracker() {
 														Progress
 													</span>
 													<span className="font-medium">
-														{Math.round(
-															job.progress,
-														)}
-														%
+														{job.status === "running" &&
+														job.totalPasses === 0
+															? "Awaiting live update"
+															: `${Math.round(job.progress)}%`}
 													</span>
 												</div>
 												<Progress
@@ -428,16 +658,7 @@ export function ProgressTracker() {
 														Method:
 													</span>
 													<span className="ml-2 font-medium">
-														{job.method}
-													</span>
-												</div>
-												<div>
-													<span className="text-muted-foreground">
-														Pass:
-													</span>
-													<span className="ml-2 font-medium">
-														{job.currentPass} of{" "}
-														{job.totalPasses}
+														{job.methodName}
 													</span>
 												</div>
 												<div>
@@ -445,30 +666,47 @@ export function ProgressTracker() {
 														Started:
 													</span>
 													<span className="ml-2 font-medium">
-														{formatTime(
-															job.startTime,
-														)}
+														{formatTime(job.startTime)}
 													</span>
 												</div>
-												<div>
-													<span className="text-muted-foreground">
-														Speed:
-													</span>
-													<span className="ml-2 font-medium">
-														{job.speed}
-													</span>
-												</div>
-												<div>
-													<span className="text-muted-foreground">
-														ETA:
-													</span>
-													<span className="ml-2 font-medium">
-														{
-															job.estimatedCompletion
-														}
-													</span>
-												</div>{" "}
+												{job.totalPasses > 0 && (
+													<div>
+														<span className="text-muted-foreground">
+															Pass:
+														</span>
+														<span className="ml-2 font-medium">
+															{job.currentPass} of {job.totalPasses}
+														</span>
+													</div>
+												)}
+												{job.speed && (
+													<div>
+														<span className="text-muted-foreground">
+															Speed:
+														</span>
+														<span className="ml-2 font-medium">
+															{job.speed}
+														</span>
+													</div>
+												)}
+												{job.estimatedCompletion && (
+													<div>
+														<span className="text-muted-foreground">
+															ETA:
+														</span>
+														<span className="ml-2 font-medium">
+															{job.estimatedCompletion}
+														</span>
+													</div>
+												)}
 											</div>
+											{job.failure && (
+												<Alert variant="destructive">
+													<AlertDescription>
+														{job.failure}
+													</AlertDescription>
+												</Alert>
+											)}
 										</div>
 									</CardContent>
 								</Card>
@@ -521,7 +759,7 @@ export function ProgressTracker() {
 												Method
 											</span>
 											<span className="font-medium">
-												{selectedJobData.method}
+												{selectedJobData.methodName}
 											</span>
 										</div>
 										<div className="flex justify-between">
@@ -529,16 +767,16 @@ export function ProgressTracker() {
 												Progress
 											</span>
 											<span className="font-medium">
-												{Math.round(
-													selectedJobData.progress,
-												)}
-												%
+												{selectedJobData.status === "running" &&
+												selectedJobData.totalPasses === 0
+													? "Awaiting live update"
+													: `${Math.round(selectedJobData.progress)}%`}
 											</span>
 										</div>
 										{selectedJobData.evidenceHash && (
 											<div className="space-y-1">
 												<span className="text-muted-foreground">
-													Evidence hash
+													Evidence-chain hash
 												</span>
 												<p className="break-all font-mono text-xs">
 													{selectedJobData.evidenceHash}
@@ -546,11 +784,29 @@ export function ProgressTracker() {
 											</div>
 										)}
 										{selectedJobData.failure && (
-											<p className="text-sm text-destructive">
-												{selectedJobData.failure}
-											</p>
+											<Alert variant="destructive">
+												<AlertDescription>
+													{selectedJobData.failure}
+												</AlertDescription>
+											</Alert>
 										)}
 									</div>
+
+									{selectedJobData.status === "running" && (
+										<Alert>
+											<AlertDescription>
+												{isHostOverwrite(selectedJobData.method)
+													? "Abort stops a host overwrite between write chunks. The server records the final outcome."
+													: "A firmware operation may continue inside the drive after DZap stops its local command. The server record reports only what DZap can confirm."}
+											</AlertDescription>
+										</Alert>
+									)}
+
+									{abortNotice?.jobId === selectedJobData.id && (
+										<p className="text-xs text-muted-foreground">
+											{abortNotice.message}
+										</p>
+									)}
 
 									{selectedJobData.status === "verified" && (
 										<>
@@ -583,7 +839,6 @@ export function ProgressTracker() {
 				</div>
 			</div>
 
-			{/* Log Viewer */}
 			<Card className="component-border component-border-hover">
 				<CardHeader>
 					<div className="flex items-center justify-between">
@@ -593,7 +848,7 @@ export function ProgressTracker() {
 								<span>Live Logs</span>
 							</CardTitle>
 							<CardDescription>
-								Real-time operation logs and system messages
+								WebSocket messages observed during this dashboard session
 							</CardDescription>
 						</div>
 						<div className="flex space-x-2">

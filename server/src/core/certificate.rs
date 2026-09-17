@@ -46,6 +46,37 @@ fn private_key() -> &'static RsaPrivateKey {
         .expect("certificate module not initialized")
 }
 
+pub(crate) fn sign_payload(payload: &[u8]) -> Result<String, String> {
+    let digest = Sha256::digest(payload);
+    let mut rng = rand::thread_rng();
+    private_key()
+        .sign_with_rng(&mut rng, Pkcs1v15Sign::new::<Sha256>(), &digest)
+        .map(hex::encode)
+        .map_err(|error| format!("failed to sign payload: {error}"))
+}
+
+pub(crate) fn verify_payload_signature(
+    public_key_pem: &str,
+    payload: &[u8],
+    signature_hex: &str,
+) -> bool {
+    use rsa::pkcs8::DecodePublicKey;
+
+    let Ok(public_key) = rsa::RsaPublicKey::from_public_key_pem(public_key_pem) else {
+        return false;
+    };
+    let Ok(signature) = hex::decode(signature_hex) else {
+        return false;
+    };
+    public_key
+        .verify(
+            Pkcs1v15Sign::new::<Sha256>(),
+            &Sha256::digest(payload),
+            &signature,
+        )
+        .is_ok()
+}
+
 fn key_path() -> Result<PathBuf, String> {
     let config_dir = dirs::config_dir().ok_or("could not get user config directory".to_string())?;
     Ok(config_dir.join("DZap").join("private.pem"))
@@ -193,21 +224,8 @@ pub(crate) fn hash_certificate_data(data: &CertificateData) -> Vec<u8> {
 
 impl SignedCertificate {
     pub fn verify_signature(&self) -> bool {
-        use rsa::pkcs8::DecodePublicKey;
-
-        let Ok(public_key) = rsa::RsaPublicKey::from_public_key_pem(&self.public_key) else {
-            return false;
-        };
-        let Ok(signature) = hex::decode(&self.signature) else {
-            return false;
-        };
-        public_key
-            .verify(
-                Pkcs1v15Sign::new::<Sha256>(),
-                &hash_certificate_data(&self.data),
-                &signature,
-            )
-            .is_ok()
+        let payload = serde_json::to_vec(&self.data).expect("certificate data is serializable");
+        verify_payload_signature(&self.public_key, &payload, &self.signature)
     }
 
     pub fn matches_job(&self, job: &WipeJob) -> bool {

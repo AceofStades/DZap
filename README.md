@@ -1,15 +1,24 @@
 # DZap Live USB
 
-DZap is a bootable Linux environment for securely erasing attached storage. It detects storage topology, requires an identity-bound safety preflight, executes device-appropriate ATA, NVMe, or overwrite methods, verifies the result, and issues signed evidence certificates.
+DZap is a bootable Linux environment for recovering data and securely erasing attached storage. It assesses a source read-only, creates a resumable ddrescue image on an identity-bound destination, opens supported encryption read-only, and offers filesystem-aware copy or PhotoRec carving with per-file hash manifests. Its wipe path requires an identity-bound safety preflight, executes device-appropriate ATA, NVMe, or overwrite methods, verifies the result, and exports signed evidence bundles to removable media.
 
 Detailed design, safety, API, live-image, testing, history, and roadmap documentation is available in [`docs/`](docs/README.md).
+
+> [!CAUTION]
+> DZap permanently destroys data on the selected storage device. Verify the device identity and every preflight result before authorizing a wipe.
+
+## Screenshots
+
+![DZap device dashboard](images/Dashboard.png)
+
+![DZap certificate page](images/Certificate.png)
 
 ## Build the bootable image
 
 Builds currently target x86-64 Arch Linux hosts. Install the build tools:
 
 ```bash
-sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup
+sudo pacman -S --needed archiso nodejs npm qemu-desktop rustup sbsigntools
 rustup default stable
 rustup target add x86_64-unknown-linux-musl
 ```
@@ -20,7 +29,17 @@ Build the hybrid BIOS/UEFI ISO:
 make iso
 ```
 
-The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, adds the DZap packages and startup files, exports the frontend, and builds a static Rust backend.
+The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, replaces its installer entries with immediate DZap boot entries, adds the DZap packages and startup files, exports the frontend, and builds static Rust binaries.
+
+For an owner-key Secure Boot image, generate a locally held signing key once and build the signed variant:
+
+```bash
+make secure-boot-key
+make secure-iso
+make verify-secure-iso
+```
+
+The signed image and its public `dzap-secure-boot.cer` enrollment companion are written to `out/secure/`. Enroll only that certificate in the target firmware's Secure Boot signature database (`db`); keep `db.key` private and never copy it to the USB. The firmware will reject this image until its owner key is enrolled because the project does not use a factory Microsoft-trusted key. See the [Secure Boot runbook](docs/live-usb.md#owner-key-secure-boot) for enrollment, verification, and current integrity limits.
 
 Test the image with a dedicated virtual disk:
 
@@ -30,6 +49,8 @@ make run-iso
 ```
 
 The smoke test boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk.
+
+Inside the interactive QEMU window, guest tty2 contains the read-only Rust TUI and tty1 contains the graphical dashboard. If the host intercepts `Ctrl+Alt+F1/F2`, press `Ctrl+Alt+2` to open the QEMU monitor, enter `sendkey ctrl-alt-f2` or `sendkey ctrl-alt-f1`, then press `Ctrl+Alt+1` to return to the guest display. QEMU uses `Ctrl+Alt+G` to release captured keyboard and mouse input. Rebuild with `make iso` after changing packaged source.
 
 Write the hybrid ISO to a USB drive with a trusted imaging tool. Verify the destination carefully because imaging replaces the entire selected device.
 
@@ -43,10 +64,11 @@ cargo build --release
 sudo DZAP_FRONTEND_DIR=../frontend/out ./target/release/server
 ```
 
-For frontend development with hot reload:
+For frontend development with hot reload, point the static client at the separately running backend:
 
 ```bash
-npm run start:frontend
+cd frontend
+NEXT_PUBLIC_DZAP_SERVER_ORIGIN=http://127.0.0.1:8080 npm run dev
 ```
 
 Runtime storage tools included in the live image are `util-linux`, `smartmontools`, `hdparm`, and `nvme-cli`.
@@ -58,12 +80,16 @@ Run the local checks:
 ```bash
 cd server
 cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --all-targets --features tui
+cargo clippy --all-targets --features tui -- -D warnings
 cd ../frontend
 npm run build
 npx tsc --noEmit
 cd ..
 make check-live
+make verify-secure-iso
 make smoke-iso
 ./server/scripts/e2e-qemu.sh
 ```
+
+Interactive architecture, wipe, and recovery diagrams are available in [`docs/diagrams/`](docs/diagrams/README.md). Each HTML file is standalone and can be shared with the team directly.

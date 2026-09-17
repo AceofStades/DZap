@@ -1,10 +1,13 @@
 chromium
+cryptsetup
 curl
+ddrescue
 hdparm
 mesa
 nvme-cli
 openbox
 smartmontools
+testdisk
 ttf-liberation
 xf86-video-vesa
 xorg-server

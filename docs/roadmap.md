@@ -2,7 +2,7 @@
 
 This roadmap covers the remaining work for DZap as an **x86-64 bootable USB appliance**. It deliberately excludes native Windows, macOS, Electron, and installed-Linux application packaging. Priorities are based on whether a gap can lose evidence, permit an unsafe operation, or prevent the live image from working on real hardware.
 
-The current implementation already discovers disks, blocks known-dangerous targets, performs capability-aware wipe operations, verifies the result, records a hash-chained job history, and generates signed certificates. It also builds and boots as an ArchISO image. The work below turns those pieces into a release that can be trusted outside the development environment.
+The current implementation already discovers disks, blocks known-dangerous targets, performs capability-aware wipe operations, verifies the result, records a hash-chained job history, and generates signed certificates. It builds and boots as an ArchISO image and can produce an owner-key-signed UEFI boot path. The work below turns those pieces into a release that can be trusted outside the development environment.
 
 ## Priority definitions
 
@@ -19,6 +19,8 @@ The current implementation already discovers disks, blocks known-dangerous targe
 The live image currently stores the signing key, wipe jobs, and certificates below `/root/.config/DZap`. ArchISO gives that path a writable overlay, but the overlay is normally volatile. Records survive a backend restart during one boot and disappear when the machine reboots unless the operator exports them.
 
 That means a verified wipe can succeed while its only durable evidence is lost. Evidence persistence is therefore the highest-priority product gap.
+
+Software path now implemented: removable destination discovery, dashboard selection/status, explicit restricted mounting, atomic bundle publication, signed manifest hashing, full readback validation, idempotent retry, and safe removal. Still required to close P0: physical FAT32 and ext4 retention tests and the long-term signing-key decision.
 
 ### Required behavior
 
@@ -109,27 +111,47 @@ Bit-for-bit reproducibility may require normalizing filesystem timestamps, ISO m
 
 The dashboard works for the tested flow, but several pieces still reflect earlier product assumptions or development shortcuts.
 
+### Implemented reliability work
+
+- `tab` and `jobId` now own dashboard navigation, including the transition from a newly authorized wipe into its progress record.
+- The WebSocket reconnects with exponential delays capped at ten seconds and reloads authoritative records after every successful connection.
+- HTTP and WebSocket endpoints follow the current page origin. A build-time override supports the separate development server.
+- Abort text distinguishes host overwrites from firmware operations that may continue inside a controller after the local command is stopped. Pause remains API-only.
+- Product metadata and navigation identify the dashboard as DZap Live USB.
+- Unsupported verification and tuning controls have been removed. Verification remains mandatory and method-specific.
+- Production builds now run TypeScript and lint checks instead of suppressing their failures.
+- Sanitization method labels describe the command or byte pattern actually executed without assigning a compliance class.
+
 ### Planned work
 
-- Read `tab` and `jobId` from the URL when the dashboard starts so a newly created wipe opens the intended progress view.
-- Reconnect the WebSocket with bounded backoff and reload the authoritative job record after reconnecting.
-- Derive the WebSocket URL from the current page origin instead of assuming `ws://localhost:8080/ws`.
-- Make pause and abort controls describe the actual method semantics. Pause applies to host overwrite chunks; firmware commands may not be pausable after submission.
-- Remove stale claims such as DoD/Gutmann branding unless a named method is implemented and verified exactly as claimed.
-- Replace leftover product names and desktop-application metadata with the DZap live-appliance identity.
-- Re-enable TypeScript and lint failures in the production build, then fix every resulting error instead of suppressing the gate.
 - Audit and update frontend dependencies until known production-impacting advisories are resolved or documented with a bounded exception.
 
 The backend remains the authority for device identity, supported methods, preflight approval, job state, and certificate contents. UI fixes must preserve that ownership.
 
-## P1: Recovery and operator-visible state
+## P1: Data recovery execution
+
+The image-first recovery workflow is implemented. It assesses the source read-only, binds a separate removable destination, and creates a sparse image with `ddrescue`. The map file and a hash-chained job record make interrupted imaging resumable. Once the image is complete, the physical source is no longer needed for analysis or extraction.
+
+Completed execution work:
+
+- Persistent recovery jobs bind the source identity, destination identity, image, map, diagnostics, output directory, and manifest digest.
+- Pause, cancellation, backend restart, and a nonzero `ddrescue` exit retain the image/map pair for a later resume.
+- Image volumes are exposed through temporary read-only loop devices. LUKS and BitLocker selections use temporary read-only `cryptsetup` mappings; the operator secret is sent through stdin and zeroized after use.
+- TestDisk provides a read-only partition report whose full log and SHA-256 digest are stored with the job.
+- Filesystem recovery mounts recognized filesystems read-only and copies regular files without following symbolic links. PhotoRec is the explicit raw-carving fallback.
+- Each attempt writes to a unique directory on the recovery destination and produces a JSON-lines SHA-256 manifest for recovered regular files.
+- Unit, HTTP integration, and destructive QEMU tests cover successful imaging and extraction, resumable error maps, blank media, LUKS, a disconnected source, and a full destination using disposable virtual media.
+
+Remaining qualification work is physical: boot the signed image on the hardware matrix, recover from sacrificial healthy and damaged USB media, exercise the supported encryption formats available to the tester, and retain the job records, tool logs, and manifests. Synthetic error injection proves the state transitions but cannot characterize a failing controller or flash device.
+
+The implementation and interpretation limits are documented in [Data recovery](data-recovery.md).
+
+## P1: Wipe-job recovery and operator-visible state
 
 Job persistence already validates records at startup and converts interrupted nonterminal jobs to failures. The live workflow still needs clearer recovery behavior.
 
-### Planned work
+The dashboard now lists persisted records after a reload, resumes observing nonterminal jobs, and shows the backend's exact failure reason. If the backend restarted, this includes `backend restarted before terminal evidence was recorded`. Remaining work:
 
-- Show recovered failed jobs with the exact interruption reason after a backend restart.
-- Let the UI resume observing a running or verifying job after a page reload.
 - Display the evidence-chain validation result and certificate/export availability in job history.
 - Expose enough firmware status to distinguish command rejection, device-reported failure, timeout, and an operator abort request.
 - Add an explicit retry path that creates a new job and never mutates the evidence of the failed attempt.
@@ -149,7 +171,9 @@ Silent fallback should become an explicit capability state so the dashboard does
 ## P2: Release hardening
 
 - Sign release checksums and document how operators verify them before writing the USB.
-- Evaluate Secure Boot support and define who owns the signing keys and revocation process.
+- Qualify owner-key enrollment and Secure Boot enforcement on OVMF and real firmware, including rejection tests for unenrolled and modified images.
+- Define production Secure Boot key custody, rotation, revocation, and recovery procedures; the generated project key is currently a demo trust root.
+- Authenticate the external ArchISO root filesystem, for example with dm-verity whose root hash is bound into the signed UKI.
 - Add an offline evidence verifier that accepts an exported bundle and produces a clear valid/invalid report without trusting DZap's backend.
 - Add accessibility checks for keyboard navigation, focus visibility, contrast, progress announcements, and destructive-action confirmation.
 - Improve display fallback behavior for unsupported graphics hardware and provide a readable console error when kiosk startup fails.
@@ -167,7 +191,7 @@ The following work is not part of the current product plan:
 - cloud accounts or mandatory network services;
 - Android sanitization without a device-specific, verifiable erasure design.
 
-Old source code or metadata related to those directions can be removed once it is confirmed that the live-image build and documentation no longer reference it.
+The obsolete Electron sources, root Node packaging manifests, and duplicate frontend package-manager lockfile have been removed. Their history remains available in Git without competing with the supported live-image build.
 
 ## Release definition of done
 
@@ -175,6 +199,7 @@ A first dependable bootable-USB release is ready when all of the following are t
 
 - the ISO builds from a clean documented environment and its inputs are traceable;
 - BIOS and UEFI boot paths pass the hardware qualification matrix;
+- the supported Secure Boot path passes positive and negative firmware-enforcement tests with documented owner-key enrollment;
 - supported SATA, NVMe, HDD, and USB methods pass on declared test hardware;
 - protected mounts, the live medium, active topology, identity changes, frozen ATA devices, hidden capacity, and unsupported firmware capabilities fail closed;
 - every successful job has method-appropriate verification and a valid evidence chain;

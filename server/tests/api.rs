@@ -260,6 +260,56 @@ async fn certificate_requires_an_existing_server_job() {
 }
 
 #[tokio::test]
+async fn evidence_export_requires_an_existing_server_job() {
+    let base = spawn_server().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{base}/api/evidence/export"))
+        .json(&json!({
+            "jobId": "job-00000000000000000000000000000000",
+            "destination": {
+                "drivePath": "/dev/sdz",
+                "driveMajorMinor": "8:240",
+                "devicePath": "/dev/sdz1",
+                "deviceMajorMinor": "8:241",
+                "mountPath": "/mnt/evidence",
+                "model": "Evidence USB",
+                "serial": "EXPORT-SERIAL",
+                "transport": "usb",
+                "filesystem": "vfat",
+                "sizeBytes": "1048576"
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+    assert_eq!(
+        resp.json::<Value>().await.unwrap()["error"],
+        json!("Wipe job not found")
+    );
+}
+
+#[tokio::test]
+async fn evidence_mount_requires_complete_discovered_identity() {
+    let base = spawn_server().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{base}/api/evidence/mount"))
+        .json(&json!({"destination": {"devicePath": "/dev/sdz1"}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.json::<Value>().await.unwrap()["error"]
+            .as_str()
+            .unwrap()
+            .contains("missing field")
+    );
+}
+
+#[tokio::test]
 async fn wipe_jobs_start_empty_and_unknown_job_is_404() {
     let base = spawn_server().await;
     let client = reqwest::Client::new();

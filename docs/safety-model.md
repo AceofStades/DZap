@@ -15,7 +15,7 @@ A wipe cannot start unless all of the following are true:
 - ATA HPA and DCO capacity probes succeed and show no hidden capacity.
 - The selected ATA or NVMe firmware action is advertised by the device.
 - The detected identity exactly matches the identity the operator approved.
-- No other wipe or verification currently reserves the same device path.
+- No conflicting storage operation currently reserves the same device path.
 
 These checks run in the root backend. Disabling a UI button is only presentation; it is not a safety boundary.
 
@@ -210,5 +210,5 @@ DZap blocks rather than guessing when:
 - Device identity can contain empty serial or WWN fields on some bridges; the remaining fields still participate, but a stronger stable-ID policy is desirable.
 - In-process reservations cannot detect another destructive utility acting on the same disk.
 - Power loss can leave a firmware operation or partial overwrite in an uncertain state; restart records this as failed, not verified.
-- The live overlay is volatile, so safe evidence export and retention are unfinished.
+- The live overlay is volatile. Backend evidence export exists, while dashboard integration and physical-media retention testing are unfinished.
 - Android reset remains unsupported because DZap cannot verify completion.

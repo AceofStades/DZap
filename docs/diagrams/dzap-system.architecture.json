@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DZap Live USB Architecture",
+    "quality_profile": "showcase",
+    "viewBox": [1310, 620],
+    "views": [
+      {
+        "id": "trusted-boot",
+        "label": "Trusted boot",
+        "focus": ["firmware", "signed_boot", "signed_uki", "live_system"],
+        "note": "Firmware verifies the loader and signed UKI before the live system starts."
+      },
+      {
+        "id": "operator-path",
+        "label": "Operator interface",
+        "focus": ["systemd", "kiosk", "tui", "backend"],
+        "note": "The kiosk and TUI use the same loopback Rust API."
+      },
+      {
+        "id": "storage-path",
+        "label": "Storage operations",
+        "focus": ["backend", "linux_tools", "target_media", "evidence_media"],
+        "note": "Only the root backend owns raw-device operations and evidence publication."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "firmware",
+      "type": "security",
+      "label": "UEFI Firmware",
+      "sublabel": "enrolled owner key",
+      "pos": [30, 280],
+      "size": [120, 64]
+    },
+    {
+      "id": "signed_boot",
+      "type": "security",
+      "label": "Signed EFI Loader",
+      "sublabel": "DZap db certificate",
+      "pos": [190, 280],
+      "size": [130, 64],
+      "tag": "owner key"
+    },
+    {
+      "id": "signed_uki",
+      "type": "security",
+      "label": "Signed DZap UKI",
+      "sublabel": "signed boot payloads",
+      "pos": [360, 280],
+      "size": [140, 64]
+    },
+    {
+      "id": "live_system",
+      "type": "backend",
+      "label": "ArchISO Live System",
+      "sublabel": "SquashFS + overlay",
+      "pos": [540, 280],
+      "size": [140, 64]
+    },
+    {
+      "id": "systemd",
+      "type": "backend",
+      "label": "systemd",
+      "sublabel": "starts DZap services",
+      "pos": [720, 280],
+      "size": [110, 64]
+    },
+    {
+      "id": "kiosk",
+      "type": "frontend",
+      "label": "Chromium Kiosk",
+      "sublabel": "unprivileged dzap user",
+      "pos": [870, 100],
+      "size": [150, 64]
+    },
+    {
+      "id": "tui",
+      "type": "frontend",
+      "label": "Rust TUI",
+      "sublabel": "read-only fallback on tty2",
+      "pos": [870, 460],
+      "size": [150, 64]
+    },
+    {
+      "id": "backend",
+      "type": "backend",
+      "label": "Rust Backend",
+      "sublabel": "root · 127.0.0.1:8080",
+      "pos": [880, 280],
+      "size": [140, 68]
+    },
+    {
+      "id": "linux_tools",
+      "type": "external",
+      "label": "Linux Storage Tools",
+      "sublabel": "nvme · hdparm · ddrescue",
+      "pos": [1060, 280],
+      "size": [150, 68]
+    },
+    {
+      "id": "target_media",
+      "type": "database",
+      "label": "Source / Wipe Media",
+      "sublabel": "identity-bound block device",
+      "pos": [1080, 100],
+      "size": [170, 68]
+    },
+    {
+      "id": "evidence_media",
+      "type": "database",
+      "label": "Recovery / Evidence USB",
+      "sublabel": "manifests + signed records",
+      "pos": [1080, 460],
+      "size": [170, 68]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Secure Boot verified startup",
+      "wraps": ["firmware", "signed_boot", "signed_uki"],
+      "pad": 18
+    },
+    {
+      "kind": "security-group",
+      "label": "Local appliance boundary",
+      "wraps": ["live_system", "systemd", "kiosk", "tui", "backend", "linux_tools"],
+      "pad": 22
+    }
+  ],
+  "connections": [
+    {"from": "firmware", "to": "signed_boot", "label": "verifies signature", "variant": "security", "labelAt": [170, 370]},
+    {"from": "signed_boot", "to": "signed_uki", "label": "verifies signature", "variant": "security", "labelAt": [340, 370]},
+    {"from": "signed_uki", "to": "live_system", "label": "mounts root image", "variant": "emphasis", "labelAt": [520, 370]},
+    {"from": "live_system", "to": "systemd", "label": "starts PID 1", "labelAt": [700, 370]},
+    {"from": "systemd", "to": "kiosk", "label": "tty1 + Xorg"},
+    {"from": "systemd", "to": "tui", "label": "tty2"},
+    {"from": "kiosk", "to": "backend", "label": "HTTP + WebSocket", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"},
+    {"from": "tui", "to": "backend", "label": "HTTP", "fromSide": "top", "toSide": "bottom"},
+    {"from": "backend", "to": "linux_tools", "label": "validated", "variant": "security", "labelAt": [1008, 370]},
+    {"from": "linux_tools", "to": "target_media", "label": "read / sanitize", "variant": "security", "fromSide": "top", "toSide": "bottom"},
+    {"from": "backend", "to": "evidence_media", "label": "atomic export", "variant": "emphasis"},
+    {"from": "linux_tools", "to": "evidence_media", "label": "image / recover", "variant": "dashed", "fromSide": "bottom", "toSide": "top"}
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Privilege Boundary",
+      "items": [
+        "Chromium and the TUI never open raw disks",
+        "The root backend revalidates identity before storage operations"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Evidence Boundary",
+      "items": [
+        "Verified jobs feed signed certificates",
+        "Recovery outputs and exported bundles carry SHA-256 manifests"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Demo Integrity Limit",
+      "items": [
+        "Secure Boot authenticates the loader and UKI",
+        "The external ArchISO SquashFS is outside that signature"
+      ]
+    }
+  ]
+}

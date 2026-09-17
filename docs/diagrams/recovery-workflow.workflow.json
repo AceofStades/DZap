@@ -1,0 +1,76 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Image-First Data Recovery Workflow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "media-routing",
+        "label": "Media to safe image",
+        "focus": ["assess", "image", "inspect"],
+        "note": "HDD, SATA SSD, NVMe, and USB sources all enter the same read-only ddrescue imaging path."
+      },
+      {
+        "id": "volume-routing",
+        "label": "Volume state to method",
+        "focus": ["inspect", "readable", "raw", "copy", "photorec"],
+        "note": "Encryption, filesystem support, and damage determine whether DZap unlocks, copies, or carves."
+      },
+      {
+        "id": "named-files",
+        "label": "Preserve names and folders",
+        "focus": ["readable", "copy", "all-files"],
+        "note": "A readable filesystem, including a read-only unlocked volume, uses filesystem copy."
+      },
+      {
+        "id": "carved-files",
+        "label": "Carve built-in signatures",
+        "focus": ["raw", "photorec", "carved-files"],
+        "note": "PhotoRec recovers recognized content when filesystem traversal is unavailable; original names and folders are usually lost."
+      },
+      {
+        "id": "evidence",
+        "label": "Recovered output evidence",
+        "focus": ["all-files", "carved-files", "manifest"],
+        "note": "Recovered paths, sizes, and SHA-256 hashes are written to the final manifest."
+      }
+    ]
+  },
+  "lanes": [
+    {"id": "control", "label": "Image-first control + evidence"},
+    {"id": "filesystem-path", "label": "Filesystem copy path"},
+    {"id": "photorec-path", "label": "PhotoRec path"}
+  ],
+  "phases": [
+    {"id": "protect", "label": "Protect source", "fromCol": 0, "toCol": 1, "variant": "security"},
+    {"id": "classify", "label": "Inspect + classify", "fromCol": 2, "toCol": 3},
+    {"id": "recover", "label": "Recover by method", "fromCol": 4, "toCol": 4, "variant": "emphasis"},
+    {"id": "output", "label": "File coverage + proof", "fromCol": 5, "toCol": 5, "variant": "emphasis"}
+  ],
+  "mainPath": ["assess", "image", "inspect", "readable", "copy", "all-files", "manifest"],
+  "nodes": [
+    {"id": "assess", "lane": "control", "col": 0, "type": "security", "label": "Assess Media", "sublabel": "HDD · SATA SSD · NVMe · USB", "tag": "read-only", "width": 140},
+    {"id": "image", "lane": "control", "col": 1, "type": "database", "label": "ddrescue Image", "sublabel": "image + resumable map", "tag": "source protected", "width": 132},
+    {"id": "inspect", "lane": "control", "col": 2, "type": "security", "label": "Inspect with TestDisk", "sublabel": "partition · crypto · FS", "width": 140},
+    {"id": "readable", "lane": "filesystem-path", "col": 3, "type": "security", "label": "FS · LUKS · BitLocker", "sublabel": "ext · XFS · Btrfs · FAT · NTFS", "tag": "read-only", "width": 166},
+    {"id": "raw", "lane": "photorec-path", "col": 3, "type": "security", "label": "Damaged / Unmountable", "sublabel": "raw volume", "width": 140},
+    {"id": "copy", "lane": "filesystem-path", "col": 4, "type": "backend", "label": "Filesystem Copy", "sublabel": "keeps names + folders", "width": 140},
+    {"id": "photorec", "lane": "photorec-path", "col": 4, "type": "backend", "label": "PhotoRec Carve", "sublabel": "all built-in signatures", "width": 136},
+    {"id": "all-files", "lane": "filesystem-path", "col": 5, "type": "database", "label": "Any Filesystem File", "sublabel": "all extensions", "width": 140},
+    {"id": "carved-files", "lane": "photorec-path", "col": 5, "type": "database", "label": "JPG PNG RAW · PDF DOCX", "sublabel": "ZIP 7z · WAV MP3 MP4 +", "tag": "300+ families", "width": 176},
+    {"id": "manifest", "lane": "control", "col": 5, "type": "security", "label": "Hash Manifest", "sublabel": "paths · sizes · SHA-256", "width": 132}
+  ],
+  "edges": [
+    {"from": "assess", "to": "image", "label": "read-only source", "variant": "security"},
+    {"from": "image", "to": "inspect", "label": "image complete", "variant": "emphasis"},
+    {"from": "inspect", "to": "readable", "label": "mountable / encrypted"},
+    {"from": "inspect", "to": "raw", "label": "damaged / raw"},
+    {"from": "readable", "to": "copy", "label": "mount / unlock"},
+    {"from": "raw", "to": "photorec", "label": "signature carve"},
+    {"from": "copy", "to": "all-files"},
+    {"from": "photorec", "to": "carved-files"},
+    {"from": "all-files", "to": "manifest"},
+    {"from": "carved-files", "to": "manifest"}
+  ]
+}

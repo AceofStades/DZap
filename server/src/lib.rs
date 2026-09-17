@@ -13,6 +13,7 @@ use axum::http::{HeaderValue, Method, header::CONTENT_TYPE};
 use axum::routing::{get, post};
 use core::certificate::CertificateStore;
 use core::jobs::JobStore;
+use core::recovery_jobs::RecoveryJobStore;
 use std::path::PathBuf;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
@@ -42,6 +43,7 @@ pub struct AppState {
     pub hub: realtime::Hub,
     pub jobs: JobStore,
     pub certificates: CertificateStore,
+    pub recovery_jobs: RecoveryJobStore,
 }
 
 impl AppState {
@@ -50,6 +52,7 @@ impl AppState {
             hub,
             jobs: JobStore::in_memory(),
             certificates: CertificateStore::in_memory(),
+            recovery_jobs: RecoveryJobStore::in_memory(),
         }
     }
 
@@ -61,6 +64,7 @@ impl AppState {
             hub,
             jobs: JobStore::persistent(config.join("jobs"))?,
             certificates: CertificateStore::persistent(config.join("certificates"))?,
+            recovery_jobs: RecoveryJobStore::persistent(config.join("recovery-jobs"))?,
         };
         for certificate in state.certificates.list()? {
             let job = state.jobs.get(&certificate.data.job_id)?.ok_or_else(|| {
@@ -103,7 +107,58 @@ pub fn build_router_with_state_and_frontend(
         .route("/api/wipe/jobs/{id}", get(api::get_wipe_job_handler))
         .route("/api/wipe/pause", post(api::pause_wipe_handler))
         .route("/api/wipe/abort", post(api::abort_wipe_handler))
+        .route("/api/recovery/assess", post(api::assess_recovery_handler))
+        .route(
+            "/api/recovery/destinations",
+            get(api::list_recovery_destinations_handler),
+        )
+        .route(
+            "/api/recovery/destinations/mount",
+            post(api::mount_recovery_destination_handler),
+        )
+        .route("/api/recovery/plan", post(api::plan_recovery_image_handler))
+        .route(
+            "/api/recovery/jobs",
+            get(api::list_recovery_jobs_handler).post(api::start_recovery_image_handler),
+        )
+        .route(
+            "/api/recovery/jobs/{id}",
+            get(api::get_recovery_job_handler),
+        )
+        .route(
+            "/api/recovery/jobs/{id}/pause",
+            post(api::pause_recovery_job_handler),
+        )
+        .route(
+            "/api/recovery/jobs/{id}/cancel",
+            post(api::cancel_recovery_job_handler),
+        )
+        .route(
+            "/api/recovery/jobs/{id}/resume",
+            post(api::resume_recovery_job_handler),
+        )
+        .route(
+            "/api/recovery/jobs/{id}/volumes",
+            get(api::inspect_recovery_volumes_handler),
+        )
+        .route(
+            "/api/recovery/jobs/{id}/analyze",
+            post(api::analyze_recovery_image_handler),
+        )
+        .route(
+            "/api/recovery/jobs/{id}/recover",
+            post(api::start_recovery_extraction_handler),
+        )
         .route("/api/certificates", get(api::list_certificates_handler))
+        .route(
+            "/api/evidence/destinations",
+            get(api::list_export_destinations_handler),
+        )
+        .route("/api/evidence/export", post(api::export_evidence_handler))
+        .route(
+            "/api/evidence/mount",
+            post(api::mount_export_destination_handler),
+        )
         .route("/api/certificate/generate", post(api::certificate_handler))
         .route("/api/certificate", post(api::certificate_handler))
         .route("/api/unmount", post(api::unmount_drive_handler))

@@ -23,43 +23,34 @@ fn drive(drive_type: DriveType) -> Drive {
 
 #[test]
 fn wipe_method_names_are_stable() {
-    assert_eq!(wipe_method_name("nvme_format"), "Purge: NVMe Format");
+    assert_eq!(wipe_method_name("nvme_format"), "NVMe Format");
     assert_eq!(
         wipe_method_name("nvme_sanitize_crypto"),
-        "Purge: NVMe Sanitize (Crypto Erase)"
+        "NVMe Sanitize (Crypto Erase)"
     );
     assert_eq!(
         wipe_method_name("nvme_sanitize_block"),
-        "Purge: NVMe Sanitize (Block Erase)"
+        "NVMe Sanitize (Block Erase)"
     );
     assert_eq!(
         wipe_method_name("nvme_sanitize_overwrite"),
-        "Purge: NVMe Sanitize (Overwrite)"
+        "NVMe Sanitize (Overwrite)"
     );
-    assert_eq!(
-        wipe_method_name("overwrite_1_pass"),
-        "Clear: 1-Pass Overwrite"
-    );
-    assert_eq!(
-        wipe_method_name("sata_secure_erase"),
-        "Purge: ATA Secure Erase"
-    );
+    assert_eq!(wipe_method_name("overwrite_1_pass"), "1-Pass Overwrite");
+    assert_eq!(wipe_method_name("sata_secure_erase"), "ATA Secure Erase");
     assert_eq!(
         wipe_method_name("sata_secure_erase_enhanced"),
-        "Purge: ATA Enhanced Secure Erase"
+        "ATA Enhanced Secure Erase"
     );
     assert_eq!(
         wipe_method_name("overwrite_3_pass"),
-        "Purge: 3-Pass Overwrite"
+        "3-Pass Pattern Overwrite"
     );
     assert_eq!(
         wipe_method_name("overwrite_2_pass"),
-        "Clear: 2-Pass Overwrite"
+        "2-Pass Complement Overwrite"
     );
-    assert_eq!(
-        wipe_method_name("android_factory_reset"),
-        "Clear: Factory Reset"
-    );
+    assert_eq!(wipe_method_name("android_factory_reset"), "Factory Reset");
     assert_eq!(wipe_method_name("something_else"), "Unknown");
 }
 
@@ -369,7 +360,7 @@ fn android_factory_reset_runs_for_serial_and_reports_progress() {
     assert_eq!(requested_serial.as_deref(), Some("FAKE_SERIAL_123"));
     assert_eq!(
         rx.try_recv().unwrap(),
-        "Executing Android Factory Reset (NIST Clear) on device FAKE_SERIAL_123..."
+        "Requesting Android recovery mode on device FAKE_SERIAL_123..."
     );
     assert_eq!(
         rx.try_recv().unwrap(),

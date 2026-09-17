@@ -21,10 +21,25 @@ Examples below use `localhost`, which reaches the same loopback service. All JSO
 | GET | `/api/wipe/jobs/{id}` | Load one authoritative job. |
 | POST | `/api/wipe/pause` | Toggle pause for an active host wipe. |
 | POST | `/api/wipe/abort` | Request cancellation for an active wipe. |
+| POST | `/api/recovery/assess` | Run a read-only recovery-source assessment. |
+| GET | `/api/recovery/destinations` | List eligible removable image destinations for one source. |
+| POST | `/api/recovery/destinations/mount` | Revalidate and mount one selected recovery destination. |
+| POST | `/api/recovery/plan` | Bind both identities and validate an image plan without starting it. |
+| GET/POST | `/api/recovery/jobs` | List recovery jobs or start a revalidated ddrescue image. |
+| GET | `/api/recovery/jobs/{id}` | Load one authoritative recovery job. |
+| POST | `/api/recovery/jobs/{id}/pause` | Safely pause active imaging after map-file flush. |
+| POST | `/api/recovery/jobs/{id}/resume` | Revalidate both drives and resume the existing map. |
+| POST | `/api/recovery/jobs/{id}/cancel` | Stop active imaging or extraction and retain partial artifacts. |
+| POST | `/api/recovery/jobs/{id}/analyze` | Run read-only TestDisk image analysis. |
+| GET | `/api/recovery/jobs/{id}/volumes` | List stable volumes detected inside a completed image. |
+| POST | `/api/recovery/jobs/{id}/recover` | Start filesystem copy or PhotoRec against an image volume. |
 | POST | `/api/unmount` | Unmount a non-system device and its direct mounted children. |
 | GET | `/api/certificates` | List signed certificates, newest first. |
 | POST | `/api/certificate` | Issue/return JSON, or PDF with `?format=pdf`. |
 | POST | `/api/certificate/generate` | Alias for JSON certificate generation. |
+| GET | `/api/evidence/destinations` | List eligible removable evidence volumes and their current mount state. |
+| POST | `/api/evidence/mount` | Mount one exactly revalidated destination with restricted options. |
+| POST | `/api/evidence/export` | Write and read back a verified evidence bundle. |
 | GET | `/ws` | Stream progress and terminal events. |
 
 Unknown non-API paths fall back to files in `DZAP_FRONTEND_DIR`.
@@ -94,8 +109,8 @@ Response:
 [
   {
     "id": "overwrite_1_pass",
-    "name": "Clear: 1-Pass Overwrite",
-    "description": "A single pass of a fixed pattern, per NIST SP 800-88r1 guidelines."
+    "name": "1-Pass Overwrite",
+    "description": "Writes 0x00 across the full host-visible device."
   }
 ]
 ```
@@ -125,6 +140,165 @@ Response fields are:
 ```
 
 Unsupported SMART access produces `N/A`/`Not available` rather than a destructive-flow failure. SATA model prediction is optional and currently lacks a packaged model/runtime in the live image; SMART status remains useful when the model is skipped.
+
+## Assess a recovery source
+
+```http
+POST /api/recovery/assess
+Content-Type: application/json
+```
+
+```json
+{
+  "devicePath": "/dev/sdb"
+}
+```
+
+The path must identify a freshly detected whole storage drive. The backend blocks its own system/live medium and sources reserved by another storage operation. During assessment it reserves the path, reads storage signatures and SMART/NVMe health indicators, and samples five evenly spaced regions without mounting or writing to the source.
+
+The response contains `decision` (`ready`, `caution`, or `blocked`), the detected identity, individual checks, signatures, encryption and media states, sparse-sample counts, and ordered recommendations. Content is classified as `structured_data`, `non_blank`, `likely_blank`, or `unknown`.
+
+A `likely_blank` result is not proof of a completed secure wipe. A `non_blank` result is not proof that useful files remain. See [Data recovery](data-recovery.md) for the exact interpretation and image-first execution pipeline.
+
+Missing, protected, and busy sources return HTTP `200` with a structured `blocked` assessment. Invalid JSON returns `400`; discovery failures return `500`.
+
+## Select and validate an image destination
+
+```http
+GET /api/recovery/destinations?sourceDevicePath=/dev/sdb
+```
+
+This lists removable USB volumes supported by the existing controlled-mount path: ext4, exFAT, and FAT32. The source's physical drive and the running system/live medium are excluded. Mounted entries include current filesystem size, available bytes, and read-only state. An unmounted entry returns those fields as `null` until it is mounted.
+
+The dashboard can mount a selected destination through:
+
+```http
+POST /api/recovery/destinations/mount
+Content-Type: application/json
+```
+
+The request sends `sourceDevicePath`, `expectedSourceIdentity`, and the exact `destination` object returned by discovery. The backend freshly revalidates both whole-drive identities, proves they are different physical drives, reserves both paths during the mount, and uses restricted mount options. Mounting can update the destination filesystem's metadata; the recovery source is never mounted by this operation. A changed, busy, protected, or ineligible device returns `409`.
+
+Build the non-executing plan with the same request shape:
+
+```http
+POST /api/recovery/plan
+Content-Type: application/json
+```
+
+The response contains `decision` (`ready` or `blocked`), fresh source and destination identities, image size, a 64 MiB metadata/free-space reserve, the planned `DZap-Recovery` directory, and individual checks. A ready plan requires:
+
+- The source identity still matches its assessment.
+- The source is neither system media nor mounted and has no active RAID, LVM, crypt, or device-mapper descendant.
+- The destination drive and partition identity still match the selection and differ from the source drive.
+- The destination is mounted read-write and has enough available bytes for a full source-sized image plus the reserve.
+- The filesystem can hold one source-sized file. FAT32 is blocked for sources larger than its single-file limit; exFAT or ext4 is required.
+- Neither physical drive is held by another storage operation at planning time.
+
+Safety failures return HTTP `200` with a structured blocked plan. The execution endpoint revalidates and reserves both identities again because a plan does not hold devices after it is returned.
+
+## Execute and resume a recovery image
+
+Start imaging by posting the same identity-bound request used for planning:
+
+```http
+POST /api/recovery/jobs
+Content-Type: application/json
+```
+
+A successful start returns HTTP `202`:
+
+```json
+{
+  "status": "recovery_imaging_started",
+  "jobId": "recovery-0123456789abcdef0123456789abcdef",
+  "deviceId": "/dev/sdb"
+}
+```
+
+The handler reruns the plan, reserves the source and destination whole drives, and revalidates them while both reservations are held. It creates `source.img`, `source.map`, `ddrescue.log`, and `job.json` below the destination's `DZap-Recovery` directory before starting ddrescue. A safety block returns HTTP `412` with the complete current plan. Reservation conflicts return `409`.
+
+List or load authoritative records with:
+
+```http
+GET /api/recovery/jobs
+GET /api/recovery/jobs/{id}
+```
+
+Recovery imaging statuses are `imaging`, `paused`, `image_complete`, `cancelled`, and `failed`. `mapSummary` contains `rescuedBytes`, `unreadableBytes`, `pendingBytes`, and `totalBytes`; `progressPercent` counts rescued and definitively unreadable ranges as handled.
+
+Control active imaging with empty POST requests:
+
+```http
+POST /api/recovery/jobs/{id}/pause
+POST /api/recovery/jobs/{id}/cancel
+POST /api/recovery/jobs/{id}/resume
+```
+
+Pause and cancel return HTTP `202` after the request reaches the worker. The job remains `imaging` until ddrescue exits and DZap persists the resulting state. Resume is available for a paused image or an imaging failure. It verifies the original source, destination, artifact binding, and current capacity, then passes the existing image and map back to ddrescue.
+
+## Inspect and recover files from an image
+
+After `image_complete`, list the image's stable recovery choices:
+
+```http
+GET /api/recovery/jobs/{id}/volumes
+```
+
+Representative response:
+
+```json
+[
+  {
+    "id": "partition-1",
+    "kind": "partition",
+    "sizeBytes": "500000000000",
+    "filesystem": "crypto_LUKS",
+    "label": null,
+    "encryption": "luks",
+    "filesystemCopySupported": true,
+    "photorecSupported": true
+  }
+]
+```
+
+The stable `id` is used in later requests. DZap never asks the caller to retain a transient loop-device path.
+
+Run TestDisk's read-only partition listing with:
+
+```http
+POST /api/recovery/jobs/{id}/analyze
+```
+
+The response contains `successful`, a bounded text `summary`, `logPath`, and `logSha256`. A nonzero TestDisk result is still retained as diagnostic evidence; this endpoint never requests TestDisk's write operation.
+
+Start filesystem-aware copy:
+
+```http
+POST /api/recovery/jobs/{id}/recover
+Content-Type: application/json
+
+{
+  "method": "filesystem_copy",
+  "volumeId": "partition-1",
+  "passphrase": "operator-provided-only-when-encrypted"
+}
+```
+
+For an unencrypted volume, omit `passphrase`. For LUKS or BitLocker, DZap passes it only through cryptsetup standard input and never persists it. The mapping and filesystem mount are read-only. Supported filesystem-copy types are ext2/3/4, XFS, Btrfs, FAT, exFAT, and NTFS/NTFS3.
+
+Use raw carving explicitly when filesystem recovery is unavailable or insufficient:
+
+```json
+{
+  "method": "photorec",
+  "volumeId": "whole-disk"
+}
+```
+
+Both methods return HTTP `202` and move the job to `extracting`. `completed` records contain `recoveryResult` with the output and manifest paths, recovered file/byte counts, skipped-entry count, and manifest SHA-256. A completed image can run later attempts with another method; each attempt uses distinct output and manifest paths.
+
+Cancellation during extraction uses `POST /api/recovery/jobs/{id}/cancel`. Partial output remains on the destination. If the backend restarts during extraction, the attempt becomes `failed`, while the completed image remains eligible for another attempt.
 
 ## Preflight and authorization handshake
 
@@ -221,7 +395,7 @@ Relevant status codes:
 | --- | --- |
 | `202 Accepted` | Authorization evidence was persisted and the worker started. |
 | `400 Bad Request` | Invalid JSON or missing/invalid fields. |
-| `409 Conflict` | Another wipe or verification already reserves the path. |
+| `409 Conflict` | Another storage operation already reserves the path. |
 | `412 Precondition Failed` | Authorization preflight blocked; body is the plan. |
 | `500 Internal Server Error` | Discovery, worker setup, or evidence persistence failed. |
 
@@ -328,10 +502,96 @@ Certificate status behavior:
 | `409 Conflict` | Job is not verified, evidence is invalid, or stored certificate disagrees with the job. |
 | `500 Internal Server Error` | Key, signing, persistence, or PDF generation failed. |
 
+## Persistent evidence export
+
+List removable partitions that use FAT32, exFAT, or ext4:
+
+```http
+GET /api/evidence/destinations
+```
+
+Representative response:
+
+```json
+[
+  {
+    "drivePath": "/dev/sdc",
+    "driveMajorMinor": "8:32",
+    "devicePath": "/dev/sdc1",
+    "deviceMajorMinor": "8:33",
+    "mountPath": null,
+    "model": "Evidence USB",
+    "serial": "EXPORT-SERIAL",
+    "transport": "usb",
+    "filesystem": "vfat",
+    "sizeBytes": "64021856256"
+  }
+]
+```
+
+The list excludes read-only devices, unsupported filesystems, internal non-removable drives, and any drive containing a protected system or `/run/archiso` mount. USB transport is accepted even when a bridge reports `RM=0`.
+
+An unmounted destination must be mounted explicitly. Send back the complete object returned by discovery:
+
+```http
+POST /api/evidence/mount
+Content-Type: application/json
+```
+
+```json
+{
+  "destination": {
+    "drivePath": "/dev/sdc",
+    "driveMajorMinor": "8:32",
+    "devicePath": "/dev/sdc1",
+    "deviceMajorMinor": "8:33",
+    "mountPath": null,
+    "model": "Evidence USB",
+    "serial": "EXPORT-SERIAL",
+    "transport": "usb",
+    "filesystem": "vfat",
+    "sizeBytes": "64021856256"
+  }
+}
+```
+
+The backend discovers the device again and requires an exact match. It refuses a device reserved by another storage operation, then mounts it below `/run/dzap-evidence` with `nodev,nosuid,noexec`. FAT and exFAT also receive explicit root ownership and `umask=022`. The response is the refreshed destination with a non-null `mountPath`.
+
+Export a verified job by sending that refreshed destination:
+
+```http
+POST /api/evidence/export
+Content-Type: application/json
+```
+
+```json
+{
+  "jobId": "job-0123456789abcdef0123456789abcdef",
+  "destination": {
+    "drivePath": "/dev/sdc",
+    "driveMajorMinor": "8:32",
+    "devicePath": "/dev/sdc1",
+    "deviceMajorMinor": "8:33",
+    "mountPath": "/run/dzap-evidence/8-33",
+    "model": "Evidence USB",
+    "serial": "EXPORT-SERIAL",
+    "transport": "usb",
+    "filesystem": "vfat",
+    "sizeBytes": "64021856256"
+  }
+}
+```
+
+Success returns the bundle path, export timestamp, public-key fingerprint, destination identity, and `alreadyExisted`. Repeating the same export validates and returns the existing bundle. A changed or corrupted bundle is rejected rather than overwritten.
+
+The bundle is created at `DZap-Evidence/<job-id>/` and contains `job.json`, `certificate.json`, `certificate.pdf`, `public-key.pem`, and `manifest.json`. The manifest includes an RSA signature over its metadata and file hashes. `409 Conflict` covers stale destination identity, active reservations, unverified jobs, invalid existing bundles, and unavailable media. Unknown jobs return `404`; malformed requests return `400`.
+
 ## WebSocket
 
+The packaged dashboard derives the socket endpoint from its page origin. A dashboard opened at `http://127.0.0.1:8080/` therefore connects to:
+
 ```text
-ws://localhost:8080/ws
+ws://127.0.0.1:8080/ws
 ```
 
 The socket is broadcast-only. Clients do not send commands through it.
@@ -344,7 +604,7 @@ Overwrite progress resembles:
   "deviceId": "/dev/sdb",
   "deviceModel": "Example Disk",
   "method": "overwrite_1_pass",
-  "methodName": "Clear: 1-Pass Overwrite",
+  "methodName": "1-Pass Overwrite",
   "status": "Pass 1/1",
   "progress": 42.5,
   "currentPass": 1,
@@ -376,7 +636,7 @@ Terminal verified event:
 
 Failure events contain `status: "failed"` and `error`. Clients should use `jobId` to refresh the complete authoritative record over HTTP after a terminal event.
 
-Broadcast receivers that lag skip missed messages and continue with newer messages. The current frontend does not automatically reconnect after socket closure; job reload/reconnect is planned work.
+Broadcast receivers that lag skip missed messages and continue with newer messages. The frontend reconnects after closure with exponential delays capped at ten seconds. Every successful connection reloads authoritative job records over HTTP, and terminal events reload their specific job. Session logs contain only WebSocket messages observed by that browser; they are not evidence records.
 
 ## Browser-origin policy
 

@@ -3,6 +3,10 @@ name = "server"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+tui = ["dep:ratatui", "dep:reqwest"]
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws", "json"] }
@@ -17,10 +21,19 @@ rand = "0.8"
 qrcode = "0.14"
 dirs = "6"
 libc = "0.2"
+zeroize = "1"
 ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"], optional = true }
+reqwest = { version = "0.13.4", default-features = false, features = ["json"], optional = true }
+
+[[bin]]
+name = "dzap-tui"
+path = "src/bin/dzap-tui.rs"
+required-features = ["tui"]
 
 [profile.release]
 opt-level = 2
+strip = true
 
 [dev-dependencies]
 futures-util = "0.3.34"

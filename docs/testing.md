@@ -12,17 +12,25 @@ Rust module tests live beside implementation when they need crate-private helper
 | `server/src/core/certificate_test.rs` | 8 | Complete certificate hashing, signature verification, job binding, JSON/PDF, store idempotence, tamper rejection, key permissions. |
 | `server/src/core/predict_test.rs` | 6 | SATA/NVMe SMART parsing, health status, feature tensor mapping, probability threshold. |
 | `server/src/core/drives_test.rs` | 5 | Drive mapping/classification, recursive topology, Android parsing, malformed discovery, ATA frozen parsing. |
+| `server/src/core/evidence_export_test.rs` | 4 | Removable destination filtering, bundle write/readback, idempotence, target exclusion, and tamper rejection. |
+| `server/src/core/recovery_test.rs` | 6 | Signature/encryption parsing, SMART damage indicators, conservative sparse blank classification, recommendations, and protected-source blocking. |
+| `server/src/core/recovery_plan_test.rs` | 6 | Destination filtering/capacity, dual identity binding, source quiescence, filesystem limits, and free-space blocking. |
+| `server/src/core/recovery_jobs_test.rs` | 7 | Persistent lifecycle, restart/disconnection recovery, evidence hashing, immutable artifact binding, tamper rejection, and symlink-root rejection. |
+| `server/src/core/recovery_imaging_test.rs` | 5 | ddrescue map parsing, safe sparse arguments, success/failure transitions, and duplicate worker controls. |
+| `server/src/core/recovery_extract_test.rs` | 7 | Stable volume identifiers, TestDisk/PhotoRec/cryptsetup arguments, hashed diagnostics, safe copy/manifests, and cancellation. |
 | `server/src/api_test.rs` | 3 | Certificate handler uses verified server-owned jobs and rejects invalid states. |
 | `server/src/realtime_test.rs` | 2 | Hub broadcast behavior. |
-| `server/tests/api.rs` | 16 | Real HTTP/WS server, routes, invalid requests, origin rules, static frontend serving, job and certificate behavior. |
+| `server/tests/api.rs` | 18 | Real HTTP/WS server, routes, invalid requests, origin rules, static frontend serving, job, certificate, and export behavior. |
 | `server/tests/preflight.rs` | 10 | Mounted/system/dependency/identity decisions, method boundaries, HPA and DCO parsing. |
 | `server/tests/nvme.rs` | 5 | Controller paths, capability parsing, command flags, sanitize-log success/failure. |
 | `server/tests/jobs.rs` | 5 | Job lifecycle, persistence, restart failure, tamper detection, certificate/job startup matching. |
 | `server/tests/verification.rs` | 4 | Full readback success, mismatch, size mismatch, method policy. |
 | `server/tests/ata.rs` | 3 | Security capability parser and normal/enhanced command arguments. |
 | `server/tests/drives.rs` | 3 | Public drive shapes, nested topology, ArchISO boot-media protection. |
+| `server/tests/recovery.rs` | 10 | Recovery assessment, planning, job control, image inspection, analysis, extraction routes, malformed input, and blocked/unknown jobs. |
+| `server/src/bin/dzap-tui.rs` | 4 | Selection bounds, size formatting, terminal rendering, and backend contract compatibility. |
 
-Current total: **89 Rust tests**.
+Current total with the TUI feature: **140 Rust tests**.
 
 ## Safety rule for automated tests
 
@@ -31,9 +39,10 @@ No ordinary Rust test points at a real block device.
 - Overwrite tests use uniquely named regular files under the temporary directory.
 - API tests submit nonexistent device paths when exercising destructive rejection.
 - Discovery parsers consume captured/synthetic `lsblk`, `hdparm`, SMART, or NVMe output.
+- Recovery tests use synthetic signatures, SMART data, device identities, capacity, and temporary regular files; they never plan against or sample a real block device.
 - Firmware command tests validate generated arguments and parsed status rather than sending commands.
 
-The one test that really wipes a block device runs inside QEMU and targets a disposable qcow2 disk.
+The tests that really wipe, image, mount, and recover block devices run inside QEMU and target disposable qcow2 disks.
 
 ## Rust unit and integration suite
 
@@ -42,6 +51,7 @@ Run:
 ```bash
 cd server
 cargo test
+cargo test --all-targets --features tui
 ```
 
 This validates both unit and integration tests. The integration suite starts the real Axum router on ephemeral loopback ports.
@@ -49,7 +59,7 @@ This validates both unit and integration tests. The integration suite starts the
 Strict linting:
 
 ```bash
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --features tui -- -D warnings
 ```
 
 Formatting:
@@ -71,7 +81,7 @@ npx tsc --noEmit
 
 The build must produce a static `out/index.html` and `_next` assets that the Rust fallback service can serve. The Rust API integration suite separately proves index and nested static asset delivery from a temporary frontend directory.
 
-The current Next configuration skips type and lint validation during `next build`, which is why `npx tsc --noEmit` is run separately. Removing those skips is planned cleanup.
+The production build runs Next.js compilation, ESLint, TypeScript validation, and static export. The explicit TypeScript command remains useful as a fast focused check.
 
 ## Destructive QEMU end-to-end test
 
@@ -85,22 +95,22 @@ The harness:
 
 1. Builds the musl backend.
 2. Downloads/caches an Alpine virtual ISO under `/tmp/dzap-e2e`.
-3. Creates a new 64 MiB scratch qcow2 disk.
+3. Creates a new 64 MiB virtio source disk and a 256 MiB USB-backed recovery destination.
 4. Boots Alpine with a serial console.
 5. Transfers the backend and guest test script through QEMU user networking.
 6. Starts the backend as guest root.
 7. Confirms `/api/drives` and method discovery.
-8. Fills `/dev/vda` with random bytes.
-9. Runs read-only preflight and extracts its identity.
-10. Starts `overwrite_1_pass` with that approved identity.
-11. Reads the full virtual disk back against 64 MiB of zeroes.
-12. Waits for a `verified` server job with full-readback evidence.
-13. Generates and validates JSON certificate fields.
-14. Generates a PDF and checks its `%PDF-1.4` header.
+8. Creates an ext4 filesystem on `/dev/vda`, writes known files, and proves assessment does not change the source hash.
+9. Starts a real `ddrescue` job through the API, waits for image completion, and proves the source hash still matches.
+10. Runs TestDisk analysis, discovers image volumes, copies the filesystem, validates recovered content, and verifies the manifest digest.
+11. Runs PhotoRec against the same completed image as a separate explicit recovery attempt.
+12. Recreates the source as LUKS, images it, unlocks the image read-only, recovers known content, and proves the secret is absent from both job records.
+13. Fills the destination and disconnects the source in turn, proving both capacity and source-presence checks block unsafe starts.
+14. Wipes `/dev/vda` through the API, verifies the full device against zeroes, reassesses it as likely blank, and validates JSON/PDF evidence.
 
 The host disk is never passed through to the VM. The only destructive path is `/dev/vda` inside the guest, backed by `/tmp/dzap-e2e/scratch.qcow2`.
 
-This test proves that the actual Rust overwrite, API orchestration, verification, evidence, and certificate pipeline work together on a Linux block device.
+This test proves that the actual Rust recovery, overwrite, API orchestration, verification, evidence, and certificate paths work together on Linux block devices. The degraded-media unit test uses a controlled fake `ddrescue` process and map file; physical bad-sector behavior remains a hardware qualification task.
 
 ## Live-image smoke test
 
@@ -111,11 +121,25 @@ make iso
 make smoke-iso
 ```
 
-The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the live image is protected as the OS drive when attached as a disk.
+The smoke test uses the generated ISO's kernel, initramfs, compressed root filesystem, service unit, installed backend, and static frontend. It confirms the BIOS and UEFI configurations select DZap immediately without an Arch installer entry, requires `ddrescue`, TestDisk/PhotoRec, and `cryptsetup` inside the guest, checks that the live image is protected as the OS drive when attached as a disk, and requires recovery assessment to refuse that protected source.
 
 It creates only a temporary 256 MiB raw scratch disk and does not invoke a wipe. Its focus is product boot and safety initialization.
 
 The direct-kernel smoke boot does not exercise the BIOS SYSLINUX or UEFI systemd-boot menu. Image metadata can be inspected with `xorriso`, while firmware boot still requires interactive QEMU or physical-machine testing.
+
+## Secure Boot image verification
+
+Generate an owner key, build the signed image, and verify its EFI artifacts:
+
+```bash
+make secure-boot-key
+make secure-iso
+make verify-secure-iso
+```
+
+The secure build fails closed if the private key is a symlink, is readable by group/others, does not match its certificate, or if a completed EFI artifact cannot be verified. The post-build verifier extracts the ISO's EFI system partition and checks the systemd-boot executables, signed UKI, required UKI sections, published enrollment certificate, and signed-only loader entry against the host certificate. It also lists the packed SquashFS, rejects an image containing the staged key directory, signing hook, or helper, and checks the public live-root metadata against the signing certificate.
+
+This is a structural and cryptographic artifact test. The smoke harness direct-boots the Linux kernel, so it does not exercise UEFI signature enforcement. A complete firmware test still needs an OVMF or physical machine whose `db` contains the generated owner certificate, followed by a negative boot test with an unenrolled or modified image.
 
 ## Shell and packaging checks
 
@@ -133,7 +157,8 @@ For ordinary backend/frontend changes:
 ```bash
 cd server
 cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --all-targets --features tui
+cargo clippy --all-targets --features tui -- -D warnings
 cargo fmt --all -- --check
 cd ../frontend
 npm run build
@@ -156,9 +181,11 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - Verification evidence must match method policy and approved identity.
 - Evidence persistence rejects tampering and interrupted state is failed on restart.
 - Certificates are signed, job-bound, idempotent, and available as JSON/PDF.
+- Evidence bundles are written atomically, read back, and rejected after tampering.
 - HTTP, WebSocket, origin policy, and static serving work through a real listener.
 - A real guest block device can pass the complete overwrite-to-certificate path.
 - The packaged live root boots, starts DZap, serves the UI, and protects its own media.
+- A signed ISO can be built whose systemd-boot executables and UKI validate against one owner certificate, contain the required UKI sections, and expose no unsigned UEFI kernel fallback.
 
 ## What is not proven yet
 
@@ -168,8 +195,9 @@ Run `make iso && make smoke-iso` when changing dependencies, the static-serving 
 - Behavior through USB-to-SATA/NVMe bridges.
 - BIOS and UEFI boot across a documented hardware matrix.
 - Power-loss behavior during each sanitization method.
-- Persistent export across reboot/removal of the live media.
-- Secure Boot.
-- Frontend reconnection and long-running job recovery under browser restarts.
+- Export, safe removal, and reboot retention on physical FAT32, exFAT, and ext4 USB media.
+- Secure Boot enforcement and owner-key enrollment across real firmware implementations, including rejection of unenrolled or tampered images.
+- Integrity enforcement for the external ArchISO SquashFS; it is outside the current UKI signature.
+- Recovery behavior during physical long-running wipes, browser restarts, and backend restarts.
 
 These are release risks and belong in the roadmap rather than being implied by a green unit suite.

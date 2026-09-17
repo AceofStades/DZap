@@ -1,32 +1,53 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
 import { DeviceManager } from "@/components/device-manager";
 import { ProgressTracker } from "@/components/progress-tracker";
 import { CertificateManager } from "@/components/certificate-manager";
+import { RecoveryJobs } from "@/components/recovery-jobs";
 import { ModeSelector } from "@/components/mode-selector";
 import { DataRecoveryView } from "@/components/data-recovery-view";
-import { ThemeProvider } from "@/components/theme-provider";
 import type { Device, StorageDevice, MobileDevice } from "@/lib/types";
 import { getDevices } from "@/lib/utils";
 
-export type TabType = "devices" | "progress" | "certificates";
+export type TabType = "devices" | "progress" | "recovery" | "certificates";
 export type AppMode = "select" | "wiping" | "recovery";
 
+const isTab = (value: string | null): value is TabType =>
+	value === "devices" ||
+	value === "progress" ||
+	value === "recovery" ||
+	value === "certificates";
+
 export default function Dashboard() {
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const requestedTab = searchParams.get("tab");
+	const activeTab: TabType = isTab(requestedTab) ? requestedTab : "devices";
 	const [appMode, setAppMode] = useState<AppMode>("select");
-	const [activeTab, setActiveTab] = useState<TabType>("devices");
 	const [allDevices, setAllDevices] = useState<Device[]>([]);
 	const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+
+	const setActiveTab = useCallback(
+		(tab: TabType) => {
+			const next = new URLSearchParams(searchParams.toString());
+			next.set("tab", tab);
+			if (tab !== "progress") next.delete("jobId");
+			if (tab !== "recovery") next.delete("recoveryJobId");
+			router.push(`/?${next.toString()}`);
+		},
+		[router, searchParams],
+	);
 
 	const fetchDevices = async () => {
 		try {
 			const { storage, mobile } = await getDevices();
 
 			const storageWithCategory: StorageDevice[] = (storage || []).map(
-				(d: any) => ({
+				(d) => ({
 					...d,
 					id: d.name,
 					deviceCategory: "storage",
@@ -35,7 +56,7 @@ export default function Dashboard() {
 			);
 
 			const mobileWithCategory: MobileDevice[] = (mobile || []).map(
-				(d: any) => ({
+				(d) => ({
 					...d,
 					id: d.serial,
 					deviceCategory: "mobile",
@@ -75,52 +96,53 @@ export default function Dashboard() {
 	};
 
 	useEffect(() => {
-		fetchDevices();
-	}, []);
+		if (appMode === "wiping") {
+			fetchDevices();
+		}
+	}, [appMode]);
+
+	if (appMode === "select") {
+		return <ModeSelector onSelectMode={(mode) => setAppMode(mode)} />;
+	}
+
+	if (appMode === "recovery") {
+		return (
+			<DataRecoveryView
+				onBackToModeSelect={() => setAppMode("select")}
+				onSwitchToWiping={() => setAppMode("wiping")}
+			/>
+		);
+	}
 
 	return (
-		<ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-			{appMode === "select" && (
-				<ModeSelector onSelectMode={(mode) => setAppMode(mode)} />
-			)}
-
-			{appMode === "recovery" && (
-				<DataRecoveryView
-					onBackToModeSelect={() => setAppMode("select")}
-					onSwitchToWiping={() => setAppMode("wiping")}
+		<div className="flex h-screen flex-col bg-background text-foreground">
+			<Header
+				activeTab={activeTab}
+				onTabChange={setActiveTab}
+				selectedDeviceName={selectedDevice?.name}
+				onBackToModeSelect={() => setAppMode("select")}
+				currentMode="wiping"
+			/>
+			<div className="flex flex-1 overflow-hidden">
+				<Sidebar
+					devices={allDevices}
+					selectedDevice={selectedDevice}
+					onSelectDevice={setSelectedDevice}
+					activeTab={activeTab}
+					onRefresh={fetchDevices}
 				/>
-			)}
-
-			{appMode === "wiping" && (
-				<div className="flex flex-col h-screen bg-background text-foreground">
-					<Header
-						activeTab={activeTab}
-						onTabChange={setActiveTab}
-						selectedDeviceName={selectedDevice?.name}
-						currentMode="wiping"
-						onBackToModeSelect={() => setAppMode("select")}
-					/>
-					<div className="flex flex-1 overflow-hidden">
-						<Sidebar
-							devices={allDevices}
+				<main className="flex-1 overflow-y-auto p-6">
+					{activeTab === "devices" && (
+						<DeviceManager
 							selectedDevice={selectedDevice}
-							onSelectDevice={setSelectedDevice}
-							activeTab={activeTab}
-							onRefresh={fetchDevices}
+							onDeviceUpdate={fetchDevices}
 						/>
-						<main className="flex-1 overflow-y-auto p-6">
-							{activeTab === "devices" && (
-								<DeviceManager
-									selectedDevice={selectedDevice}
-									onDeviceUpdate={fetchDevices}
-								/>
-							)}
-							{activeTab === "progress" && <ProgressTracker />}
-							{activeTab === "certificates" && <CertificateManager />}
-						</main>
-					</div>
-				</div>
-			)}
-		</ThemeProvider>
+					)}
+					{activeTab === "progress" && <ProgressTracker />}
+					{activeTab === "recovery" && <RecoveryJobs />}
+					{activeTab === "certificates" && <CertificateManager />}
+				</main>
+			</div>
+		</div>
 	);
 }

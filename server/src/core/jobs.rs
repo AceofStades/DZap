@@ -396,7 +396,7 @@ fn new_job_id() -> String {
     format!("job-{}", hex::encode(random))
 }
 
-fn valid_job_id(id: &str) -> bool {
+pub(crate) fn valid_job_id(id: &str) -> bool {
     id.len() == 36
         && id.starts_with("job-")
         && id[4..]

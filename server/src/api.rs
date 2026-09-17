@@ -8,7 +8,12 @@ use serde_json::json;
 
 use crate::AppState;
 use crate::core::{
-    certificate, drives, jobs::WipeJobStatus, predict, preflight, verification, wiper,
+    certificate::{self, SignedCertificate},
+    drives, evidence_export,
+    jobs::{WipeJob, WipeJobStatus},
+    predict, preflight, recovery, recovery_extract, recovery_imaging,
+    recovery_jobs::{RecoveryJob, RecoveryJobStatus},
+    recovery_plan, verification, wiper,
 };
 
 /// Helper to ensure all error responses are in a consistent JSON format.
@@ -261,6 +266,710 @@ pub async fn preflight_wipe_handler(
     }
 }
 
+pub async fn assess_recovery_handler(
+    body: Result<
+        Json<recovery::RecoveryAssessmentRequest>,
+        axum::extract::rejection::JsonRejection,
+    >,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+
+    match tokio::task::spawn_blocking(move || recovery::assess_recovery(&request)).await {
+        Ok(Ok(assessment)) => Json(assessment).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to assess recovery source: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to assess recovery source: {error}"),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryDestinationsQuery {
+    pub source_device_path: String,
+}
+
+pub async fn list_recovery_destinations_handler(
+    query: Result<
+        axum::extract::Query<RecoveryDestinationsQuery>,
+        axum::extract::rejection::QueryRejection,
+    >,
+) -> Response {
+    let axum::extract::Query(query) = match query {
+        Ok(query) => query,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid query parameters: {error}"),
+            );
+        }
+    };
+    match tokio::task::spawn_blocking(move || {
+        recovery_plan::detect_recovery_destinations(&query.source_device_path)
+    })
+    .await
+    {
+        Ok(Ok(destinations)) => Json(destinations).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect recovery destinations: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect recovery destinations: {error}"),
+        ),
+    }
+}
+
+pub async fn mount_recovery_destination_handler(
+    body: Result<
+        Json<recovery_plan::RecoveryMountRequest>,
+        axum::extract::rejection::JsonRejection,
+    >,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+    match tokio::task::spawn_blocking(move || recovery_plan::mount_recovery_destination(&request))
+        .await
+    {
+        Ok(Ok(destination)) => Json(destination).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::CONFLICT,
+            &format!("Failed to mount recovery destination: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to mount recovery destination: {error}"),
+        ),
+    }
+}
+
+pub async fn plan_recovery_image_handler(
+    body: Result<Json<recovery_plan::RecoveryPlanRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+    match tokio::task::spawn_blocking(move || recovery_plan::plan_recovery_image(&request)).await {
+        Ok(Ok(plan)) => Json(plan).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to plan recovery image: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to plan recovery image: {error}"),
+        ),
+    }
+}
+
+pub async fn start_recovery_image_handler(
+    State(state): State<AppState>,
+    body: Result<Json<recovery_plan::RecoveryPlanRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+    let plan_request = request.clone();
+    let plan = match tokio::task::spawn_blocking(move || {
+        recovery_plan::plan_recovery_image(&plan_request)
+    })
+    .await
+    {
+        Ok(Ok(plan)) => plan,
+        Ok(Err(error)) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to plan recovery image: {error}"),
+            );
+        }
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to plan recovery image: {error}"),
+            );
+        }
+    };
+    if plan.decision != recovery_plan::RecoveryPlanDecision::Ready {
+        return (StatusCode::PRECONDITION_FAILED, Json(plan)).into_response();
+    }
+
+    let destination_drive = match plan.destination.as_ref() {
+        Some(destination) => destination.drive_path.clone(),
+        None => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Ready recovery plan has no destination",
+            );
+        }
+    };
+    let source_reservation = match wiper::reserve_device(&plan.source_device_path) {
+        Ok(reservation) => reservation,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let destination_reservation = match wiper::reserve_device(&destination_drive) {
+        Ok(reservation) => reservation,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let revalidation_request = request.clone();
+    let final_plan = match tokio::task::spawn_blocking(move || {
+        recovery_plan::revalidate_recovery_image(&revalidation_request)
+    })
+    .await
+    {
+        Ok(Ok(plan)) => plan,
+        Ok(Err(error)) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to revalidate recovery image: {error}"),
+            );
+        }
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to revalidate recovery image: {error}"),
+            );
+        }
+    };
+    if final_plan.decision != recovery_plan::RecoveryPlanDecision::Ready {
+        return (StatusCode::PRECONDITION_FAILED, Json(final_plan)).into_response();
+    }
+
+    let job = match state.recovery_jobs.create(&final_plan) {
+        Ok(job) => job,
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to create recovery job: {error}"),
+            );
+        }
+    };
+    let control = match recovery_imaging::register_recovery_control(&job.id) {
+        Ok(control) => control,
+        Err(error) => {
+            let _ = state.recovery_jobs.fail(&job.id, &error);
+            return error_response(StatusCode::CONFLICT, &error);
+        }
+    };
+    spawn_recovery_imaging(
+        state,
+        job.clone(),
+        source_reservation,
+        destination_reservation,
+        control,
+    );
+
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "recovery_imaging_started",
+            "jobId": job.id,
+            "deviceId": job.source_device_path,
+        })),
+    )
+        .into_response()
+}
+
+pub async fn list_recovery_jobs_handler(State(state): State<AppState>) -> Response {
+    match state.recovery_jobs.list() {
+        Ok(jobs) => Json(jobs).into_response(),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to list recovery jobs: {error}"),
+        ),
+    }
+}
+
+pub async fn get_recovery_job_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    match state.recovery_jobs.get(&id) {
+        Ok(Some(job)) if job.verify_evidence() => Json(job).into_response(),
+        Ok(Some(_)) => error_response(
+            StatusCode::CONFLICT,
+            "Recovery job evidence verification failed",
+        ),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "Recovery job not found"),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to load recovery job: {error}"),
+        ),
+    }
+}
+
+pub async fn pause_recovery_job_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    request_recovery_action(&state, &id, "pause")
+}
+
+pub async fn cancel_recovery_job_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    request_recovery_action(&state, &id, "cancel")
+}
+
+fn request_recovery_action(state: &AppState, id: &str, action: &str) -> Response {
+    let job = match state.recovery_jobs.get(id) {
+        Ok(Some(job)) => job,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Recovery job not found"),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to load recovery job: {error}"),
+            );
+        }
+    };
+    let valid_status = match action {
+        "pause" => job.status == RecoveryJobStatus::Imaging,
+        "cancel" => matches!(
+            job.status,
+            RecoveryJobStatus::Imaging | RecoveryJobStatus::Extracting
+        ),
+        _ => false,
+    };
+    if !valid_status {
+        return error_response(
+            StatusCode::CONFLICT,
+            "Recovery job is not active for this action",
+        );
+    }
+    let result = match action {
+        "pause" => recovery_imaging::request_recovery_pause(id),
+        "cancel" => recovery_imaging::request_recovery_cancel(id),
+        _ => unreachable!("recovery action is selected by the route"),
+    };
+    match result {
+        Ok(()) => (
+            StatusCode::ACCEPTED,
+            Json(json!({
+                "status": format!("{action}_requested"),
+                "jobId": id,
+            })),
+        )
+            .into_response(),
+        Err(error) => error_response(StatusCode::CONFLICT, &error),
+    }
+}
+
+pub async fn resume_recovery_job_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    let job = match state.recovery_jobs.get(&id) {
+        Ok(Some(job)) => job,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Recovery job not found"),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to load recovery job: {error}"),
+            );
+        }
+    };
+    if !job.verify_evidence() {
+        return error_response(
+            StatusCode::CONFLICT,
+            "Recovery job evidence verification failed",
+        );
+    }
+    let image_was_completed = job
+        .events
+        .iter()
+        .any(|event| event.event_type == "image_completed");
+    let can_resume = job.status == RecoveryJobStatus::Paused
+        || (job.status == RecoveryJobStatus::Failed && !image_was_completed);
+    if !can_resume {
+        return error_response(StatusCode::CONFLICT, "Recovery job cannot be resumed");
+    }
+    let allocated_bytes = match job.image_allocated_bytes() {
+        Ok(bytes) => bytes,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let source_reservation = match wiper::reserve_device(&job.source_device_path) {
+        Ok(reservation) => reservation,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let destination_reservation = match wiper::reserve_device(&job.destination.drive_path) {
+        Ok(reservation) => reservation,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let request = recovery_plan::RecoveryPlanRequest {
+        source_device_path: job.source_device_path.clone(),
+        expected_source_identity: job.source_identity.clone(),
+        destination: job.destination.clone(),
+    };
+    let final_plan = match tokio::task::spawn_blocking(move || {
+        recovery_plan::revalidate_recovery_resume(&request, allocated_bytes)
+    })
+    .await
+    {
+        Ok(Ok(plan)) => plan,
+        Ok(Err(error)) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to revalidate recovery image: {error}"),
+            );
+        }
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to revalidate recovery image: {error}"),
+            );
+        }
+    };
+    if final_plan.decision != recovery_plan::RecoveryPlanDecision::Ready {
+        return (StatusCode::PRECONDITION_FAILED, Json(final_plan)).into_response();
+    }
+    let control = match recovery_imaging::register_recovery_control(&id) {
+        Ok(control) => control,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let resumed = match state.recovery_jobs.resume(&id) {
+        Ok(job) => job,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    spawn_recovery_imaging(
+        state,
+        resumed.clone(),
+        source_reservation,
+        destination_reservation,
+        control,
+    );
+
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "recovery_imaging_resumed",
+            "jobId": resumed.id,
+            "deviceId": resumed.source_device_path,
+        })),
+    )
+        .into_response()
+}
+
+pub async fn inspect_recovery_volumes_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    let job = match state.recovery_jobs.get(&id) {
+        Ok(Some(job)) => job,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Recovery job not found"),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to load recovery job: {error}"),
+            );
+        }
+    };
+    let reservation = match wiper::reserve_device(&job.destination.drive_path) {
+        Ok(reservation) => reservation,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let _reservation = reservation;
+        recovery_plan::revalidate_recovery_destination(&job.destination)?;
+        recovery_extract::inspect_recovery_image(&job)
+    })
+    .await;
+    match result {
+        Ok(Ok(volumes)) => Json(volumes).into_response(),
+        Ok(Err(error)) => error_response(StatusCode::CONFLICT, &error),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to inspect recovery image: {error}"),
+        ),
+    }
+}
+
+pub async fn analyze_recovery_image_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    let job = match state.recovery_jobs.get(&id) {
+        Ok(Some(job)) => job,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Recovery job not found"),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to load recovery job: {error}"),
+            );
+        }
+    };
+    let reservation = match wiper::reserve_device(&job.destination.drive_path) {
+        Ok(reservation) => reservation,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let store = state.recovery_jobs.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let _reservation = reservation;
+        recovery_plan::revalidate_recovery_destination(&job.destination)?;
+        recovery_extract::analyze_recovery_image(&job, &store)
+    })
+    .await;
+    match result {
+        Ok(Ok(analysis)) => Json(analysis).into_response(),
+        Ok(Err(error)) => error_response(StatusCode::CONFLICT, &error),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to analyze recovery image: {error}"),
+        ),
+    }
+}
+
+pub async fn start_recovery_extraction_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    body: Result<
+        Json<recovery_extract::RecoveryRunRequest>,
+        axum::extract::rejection::JsonRejection,
+    >,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+    let job = match state.recovery_jobs.get(&id) {
+        Ok(Some(job)) => job,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Recovery job not found"),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to load recovery job: {error}"),
+            );
+        }
+    };
+    if !job.verify_evidence() {
+        return error_response(
+            StatusCode::CONFLICT,
+            "Recovery job evidence verification failed",
+        );
+    }
+    let has_complete_image = job
+        .events
+        .iter()
+        .any(|event| event.event_type == "image_completed");
+    if !has_complete_image
+        || !matches!(
+            job.status,
+            RecoveryJobStatus::ImageComplete
+                | RecoveryJobStatus::Completed
+                | RecoveryJobStatus::Cancelled
+                | RecoveryJobStatus::Failed
+        )
+    {
+        return error_response(
+            StatusCode::CONFLICT,
+            "File recovery requires a completed source image",
+        );
+    }
+    let destination_reservation = match wiper::reserve_device(&job.destination.drive_path) {
+        Ok(reservation) => reservation,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let expected_destination = job.destination.clone();
+    let revalidation = tokio::task::spawn_blocking(move || {
+        recovery_plan::revalidate_recovery_destination(&expected_destination)
+    })
+    .await;
+    match revalidation {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => return error_response(StatusCode::CONFLICT, &error),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to revalidate recovery destination: {error}"),
+            );
+        }
+    }
+    let control = match recovery_imaging::register_recovery_control(&id) {
+        Ok(control) => control,
+        Err(error) => return error_response(StatusCode::CONFLICT, &error),
+    };
+    let method = request.method;
+    spawn_recovery_extraction(state, job, request, destination_reservation, control);
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "recovery_extraction_started",
+            "jobId": id,
+            "method": method,
+        })),
+    )
+        .into_response()
+}
+
+fn spawn_recovery_imaging(
+    state: AppState,
+    job: RecoveryJob,
+    source_reservation: wiper::DeviceReservation,
+    destination_reservation: wiper::DeviceReservation,
+    control: recovery_imaging::RecoveryControlGuard,
+) {
+    let job_id = job.id.clone();
+    let source_path = job.source_device_path.clone();
+    tokio::spawn(async move {
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let worker_store = state.recovery_jobs.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _source_reservation = source_reservation;
+            let _destination_reservation = destination_reservation;
+            recovery_imaging::run_ddrescue(job, &worker_store, &progress_tx, &control)
+        });
+
+        while let Some(message) = progress_rx.recv().await {
+            state.hub.broadcast(message);
+        }
+        let result = match worker.await {
+            Ok(result) => result,
+            Err(error) => Err(format!("recovery imaging worker failed: {error}")),
+        };
+        match result {
+            Ok(job) => state.hub.broadcast(
+                json!({
+                    "operation": "recovery_imaging",
+                    "status": job.status,
+                    "jobId": job.id,
+                    "deviceId": job.source_device_path,
+                    "percentage": job.progress_percent,
+                    "rescuedBytes": job.map_summary.rescued_bytes,
+                    "unreadableBytes": job.map_summary.unreadable_bytes,
+                    "pendingBytes": job.map_summary.pending_bytes,
+                    "message": job.last_message,
+                })
+                .to_string(),
+            ),
+            Err(error) => {
+                drives::log_line(&format!("ERROR in recovery imaging: {error}"));
+                let recorded = state.recovery_jobs.fail(&job_id, &error);
+                state.hub.broadcast(
+                    json!({
+                        "operation": "recovery_imaging",
+                        "status": "failed",
+                        "jobId": job_id,
+                        "deviceId": source_path,
+                        "error": recorded
+                            .err()
+                            .map(|record_error| format!("{error}; evidence error: {record_error}"))
+                            .unwrap_or(error),
+                    })
+                    .to_string(),
+                );
+            }
+        }
+    });
+}
+
+fn spawn_recovery_extraction(
+    state: AppState,
+    job: RecoveryJob,
+    request: recovery_extract::RecoveryRunRequest,
+    destination_reservation: wiper::DeviceReservation,
+    control: recovery_imaging::RecoveryControlGuard,
+) {
+    let job_id = job.id.clone();
+    let source_path = job.source_device_path.clone();
+    tokio::spawn(async move {
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let worker_store = state.recovery_jobs.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _destination_reservation = destination_reservation;
+            let result =
+                recovery_extract::run_recovery(job, request, &worker_store, &progress_tx, &control);
+            (result, control.requested_action())
+        });
+        while let Some(message) = progress_rx.recv().await {
+            state.hub.broadcast(message);
+        }
+        let (result, action) = match worker.await {
+            Ok(result) => result,
+            Err(error) => (
+                Err(format!("recovery extraction worker failed: {error}")),
+                recovery_imaging::RecoveryRequestedAction::None,
+            ),
+        };
+        match result {
+            Ok(job) => state.hub.broadcast(
+                json!({
+                    "operation": "recovery_extraction",
+                    "status": job.status,
+                    "jobId": job.id,
+                    "deviceId": job.source_device_path,
+                    "message": job.last_message,
+                    "recoveryResult": job.recovery_result,
+                })
+                .to_string(),
+            ),
+            Err(error) => {
+                drives::log_line(&format!("ERROR in recovery extraction: {error}"));
+                let recorded = if action == recovery_imaging::RecoveryRequestedAction::Cancel {
+                    state.recovery_jobs.cancel(
+                        &job_id,
+                        "File recovery cancelled; the source image and partial output were retained.",
+                    )
+                } else {
+                    state.recovery_jobs.fail(&job_id, &error)
+                };
+                state.hub.broadcast(
+                    json!({
+                        "operation": "recovery_extraction",
+                        "status": if action == recovery_imaging::RecoveryRequestedAction::Cancel {
+                            "cancelled"
+                        } else {
+                            "failed"
+                        },
+                        "jobId": job_id,
+                        "deviceId": source_path,
+                        "error": recorded
+                            .err()
+                            .map(|record_error| format!("{error}; evidence error: {record_error}"))
+                            .unwrap_or(error),
+                    })
+                    .to_string(),
+                );
+            }
+        }
+    });
+}
+
 pub async fn list_wipe_jobs_handler(State(state): State<AppState>) -> Response {
     match state.jobs.list() {
         Ok(jobs) => Json(jobs).into_response(),
@@ -382,6 +1091,20 @@ pub async fn list_certificates_handler(State(state): State<AppState>) -> Respons
     }
 }
 
+pub async fn list_export_destinations_handler() -> Response {
+    match tokio::task::spawn_blocking(evidence_export::detect_export_destinations).await {
+        Ok(Ok(destinations)) => Json(destinations).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect evidence export destinations: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to detect evidence export destinations: {error}"),
+        ),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UnmountRequest {
     #[serde(alias = "Device")]
@@ -433,6 +1156,139 @@ pub struct CertRequest {
     pub job_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct EvidenceExportRequest {
+    #[serde(rename = "jobId", alias = "job_id")]
+    pub job_id: String,
+    pub destination: evidence_export::ExportDestination,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EvidenceMountRequest {
+    pub destination: evidence_export::ExportDestination,
+}
+
+fn load_or_issue_certificate(
+    state: &AppState,
+    job: &WipeJob,
+) -> Result<SignedCertificate, (StatusCode, String)> {
+    match state.certificates.get(&job.id) {
+        Ok(Some(certificate)) => {
+            if !certificate.verify_signature() || !certificate.matches_job(job) {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "Stored certificate does not match the wipe evidence".to_string(),
+                ));
+            }
+            Ok(certificate)
+        }
+        Ok(None) => {
+            let generated = certificate::generate_certificate_for_job(job).map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to generate certificate: {error}"),
+                )
+            })?;
+            state
+                .certificates
+                .save_if_absent(generated)
+                .map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to persist certificate: {error}"),
+                    )
+                })
+        }
+        Err(error) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to load certificate: {error}"),
+        )),
+    }
+}
+
+pub async fn export_evidence_handler(
+    State(state): State<AppState>,
+    body: Result<Json<EvidenceExportRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+
+    let job = match state.jobs.get(&request.job_id) {
+        Ok(Some(job)) => job,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Wipe job not found"),
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to load wipe job: {error}"),
+            );
+        }
+    };
+    if job.status != WipeJobStatus::Verified || !job.verify_evidence() {
+        return error_response(
+            StatusCode::CONFLICT,
+            "Evidence export requires a successfully verified wipe job",
+        );
+    }
+
+    let certificate = match load_or_issue_certificate(&state, &job) {
+        Ok(certificate) => certificate,
+        Err((status, message)) => return error_response(status, &message),
+    };
+    let destination = request.destination;
+    match tokio::task::spawn_blocking(move || {
+        evidence_export::export_evidence(&job, &certificate, &destination)
+    })
+    .await
+    {
+        Ok(Ok(result)) => Json(result).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::CONFLICT,
+            &format!("Failed to export evidence: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to export evidence: {error}"),
+        ),
+    }
+}
+
+pub async fn mount_export_destination_handler(
+    body: Result<Json<EvidenceMountRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(request) => request,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid request body: {error}"),
+            );
+        }
+    };
+
+    match tokio::task::spawn_blocking(move || {
+        evidence_export::mount_export_destination(&request.destination)
+    })
+    .await
+    {
+        Ok(Ok(destination)) => Json(destination).into_response(),
+        Ok(Err(error)) => error_response(
+            StatusCode::CONFLICT,
+            &format!("Failed to mount evidence destination: {error}"),
+        ),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to mount evidence destination: {error}"),
+        ),
+    }
+}
+
 /// Issues a certificate from server-owned evidence. Supports `?format=pdf`.
 pub async fn certificate_handler(
     State(state): State<AppState>,
@@ -472,42 +1328,9 @@ pub async fn certificate_handler(
         );
     }
 
-    let signed_cert = match state.certificates.get(&req.job_id) {
-        Ok(Some(certificate)) => {
-            if !certificate.verify_signature() || !certificate.matches_job(&job) {
-                return error_response(
-                    StatusCode::CONFLICT,
-                    "Stored certificate does not match the wipe evidence",
-                );
-            }
-            certificate
-        }
-        Ok(None) => {
-            let generated = match certificate::generate_certificate_for_job(&job) {
-                Ok(certificate) => certificate,
-                Err(error) => {
-                    return error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to generate certificate: {error}"),
-                    );
-                }
-            };
-            match state.certificates.save_if_absent(generated) {
-                Ok(certificate) => certificate,
-                Err(error) => {
-                    return error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to persist certificate: {error}"),
-                    );
-                }
-            }
-        }
-        Err(error) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("Failed to load certificate: {error}"),
-            );
-        }
+    let signed_cert = match load_or_issue_certificate(&state, &job) {
+        Ok(certificate) => certificate,
+        Err((status, message)) => return error_response(status, &message),
     };
 
     // Check if user requested PDF format

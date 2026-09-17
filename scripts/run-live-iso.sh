@@ -23,6 +23,14 @@ if [[ -r /dev/kvm && -w /dev/kvm ]]; then
     acceleration=(-enable-kvm)
 fi
 
+cat <<'EOF'
+QEMU guest console switching (safe when the host intercepts Ctrl+Alt+Fn):
+  1. Press Ctrl+Alt+2 to open the QEMU monitor.
+  2. Type `sendkey ctrl-alt-f2` for the Rust TUI, or `sendkey ctrl-alt-f1` for the kiosk.
+  3. Press Ctrl+Alt+1 to return to the guest display.
+  Ctrl+Alt+G releases QEMU's keyboard and mouse grab.
+EOF
+
 exec qemu-system-x86_64 \
     "${acceleration[@]}" \
     -m 4096 \
