@@ -21,7 +21,7 @@ verify-secure-iso:
 	./scripts/verify-secure-iso.py $(if $(ISO),"$(ISO)",) \
 		--certificate "$(SECURE_BOOT_DIR)/db.pem"
 
-run-iso:
+run-iso: iso
 	./scripts/run-live-iso.sh
 
 run-tui:

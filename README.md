@@ -41,16 +41,17 @@ make verify-secure-iso
 
 The signed image and its public `dzap-secure-boot.cer` enrollment companion are written to `out/secure/`. Enroll only that certificate in the target firmware's Secure Boot signature database (`db`); keep `db.key` private and never copy it to the USB. The firmware will reject this image until its owner key is enrolled because the project does not use a factory Microsoft-trusted key. See the [Secure Boot runbook](docs/live-usb.md#owner-key-secure-boot) for enrollment, verification, and current integrity limits.
 
-Test the image with a dedicated virtual disk:
+Build and launch the current source with a dedicated virtual disk:
 
 ```bash
-make smoke-iso
 make run-iso
 ```
 
-The smoke test boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk.
+`make run-iso` rebuilds the image first, so frontend and backend changes are included before QEMU starts. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk. To launch an existing image without rebuilding it, run `./scripts/run-live-iso.sh` directly.
 
-Inside the interactive QEMU window, guest tty2 contains the read-only Rust TUI and tty1 contains the graphical dashboard. If the host intercepts `Ctrl+Alt+F1/F2`, press `Ctrl+Alt+2` to open the QEMU monitor, enter `sendkey ctrl-alt-f2` or `sendkey ctrl-alt-f1`, then press `Ctrl+Alt+1` to return to the guest display. QEMU uses `Ctrl+Alt+G` to release captured keyboard and mouse input. Rebuild with `make iso` after changing packaged source.
+After building, `make smoke-iso` boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection.
+
+Inside the interactive QEMU window, guest tty2 contains the read-only Rust TUI and tty1 contains the graphical dashboard. If the host intercepts `Ctrl+Alt+F1/F2`, press `Ctrl+Alt+2` to open the QEMU monitor, enter `sendkey ctrl-alt-f2` or `sendkey ctrl-alt-f1`, then press `Ctrl+Alt+1` to return to the guest display. QEMU uses `Ctrl+Alt+G` to release captured keyboard and mouse input.
 
 Write the hybrid ISO to a USB drive with a trusted imaging tool. Verify the destination carefully because imaging replaces the entire selected device.
 
