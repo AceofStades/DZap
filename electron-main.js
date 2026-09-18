@@ -1,5 +1,9 @@
 const { app, BrowserWindow } = require("electron");
 
+// Linux sandbox compatibility
+app.commandLine.appendSwitch("no-sandbox");
+app.commandLine.appendSwitch("disable-gpu-sandbox");
+
 function createWindow() {
 	const mainWindow = new BrowserWindow({
 		width: 1366,
@@ -14,6 +18,7 @@ function createWindow() {
 		},
 	});
 
+	// Wait briefly or retry if dev server is warming up
 	const targetUrl = process.env.DZAP_UI_URL || "http://localhost:3000";
 	mainWindow.loadURL(targetUrl);
 }
