@@ -22,6 +22,7 @@ DZap currently provides:
 - A read-only recovery assessment for signatures, encryption, media damage indicators, and sparse content classification.
 - Identity-bound destination selection and resumable ddrescue imaging with persistent progress.
 - Read-only image inspection, encrypted-volume access, filesystem copy, PhotoRec carving, and recovered-file hash manifests.
+- Autonomous raw-sector forensic carving engine (Scalpel contiguous sliding-window & Garfinkel bi-fragment gap heuristics) with deep JPEG, PNG, and MP4 structural parsers, write-blocking verification, real-time WebSocket telemetry, and tamper-evident Chain of Custody reports (NIST SP 800-86 & ISO/IEC 27037).
 - A read-only Rust terminal interface for device inspection and safety preflight on tty2.
 - A hybrid BIOS/UEFI ArchISO image with automatic kiosk startup.
 - An owner-key Secure Boot build that signs systemd-boot and a unified kernel image containing the kernel, initramfs, and boot command line.

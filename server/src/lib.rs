@@ -14,6 +14,7 @@ use axum::routing::{get, post};
 use core::certificate::CertificateStore;
 use core::jobs::JobStore;
 use core::recovery_jobs::RecoveryJobStore;
+use core::carver::CarverStore;
 use std::path::PathBuf;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
@@ -44,6 +45,7 @@ pub struct AppState {
     pub jobs: JobStore,
     pub certificates: CertificateStore,
     pub recovery_jobs: RecoveryJobStore,
+    pub carver: CarverStore,
 }
 
 impl AppState {
@@ -53,6 +55,7 @@ impl AppState {
             jobs: JobStore::in_memory(),
             certificates: CertificateStore::in_memory(),
             recovery_jobs: RecoveryJobStore::in_memory(),
+            carver: CarverStore::new(),
         }
     }
 
@@ -65,6 +68,7 @@ impl AppState {
             jobs: JobStore::persistent(config.join("jobs"))?,
             certificates: CertificateStore::persistent(config.join("certificates"))?,
             recovery_jobs: RecoveryJobStore::persistent(config.join("recovery-jobs"))?,
+            carver: CarverStore::new(),
         };
         for certificate in state.certificates.list()? {
             let job = state.jobs.get(&certificate.data.job_id)?.ok_or_else(|| {
@@ -170,6 +174,13 @@ pub fn build_router_with_state_and_frontend(
             "/api/drive/{name}/wipe-methods",
             get(api::get_wipe_methods_handler),
         )
+        .route("/api/carve/start", post(api::start_carve_handler))
+        .route("/api/carve/stop", post(api::stop_carve_handler))
+        .route("/api/carve/status", get(api::get_carve_status_handler))
+        .route("/api/carve/artifacts", get(api::list_carve_artifacts_handler))
+        .route("/api/carve/artifacts/{id}", get(api::get_carve_artifact_handler))
+        .route("/api/carve/preview/{id}", get(api::get_carve_preview_handler))
+        .route("/api/carve/export-report", get(api::export_carve_report_handler))
         .route("/ws", get(api::ws_handler))
         .fallback_service(ServeDir::new(frontend_directory.into()))
         .layer(cors_layer())

@@ -1,4 +1,5 @@
 pub mod ata;
+pub mod carver;
 pub mod certificate;
 pub mod drives;
 pub mod evidence_export;

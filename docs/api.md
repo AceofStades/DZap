@@ -33,6 +33,13 @@ Examples below use `localhost`, which reaches the same loopback service. All JSO
 | POST | `/api/recovery/jobs/{id}/analyze` | Run read-only TestDisk image analysis. |
 | GET | `/api/recovery/jobs/{id}/volumes` | List stable volumes detected inside a completed image. |
 | POST | `/api/recovery/jobs/{id}/recover` | Start filesystem copy or PhotoRec against an image volume. |
+| POST | `/api/carve/start` | Launch a streaming forensic carving task against raw blocks or disk image. |
+| POST | `/api/carve/stop` | Signal the active carving engine to halt and finalize artifacts. |
+| GET | `/api/carve/status` | Return current carving progress, throughput, and sector counts. |
+| GET | `/api/carve/artifacts` | List all discovered artifacts with confidence scores and SHA-256 digests. |
+| GET | `/api/carve/artifacts/{id}` | Return metadata and properties for a single carved artifact. |
+| GET | `/api/carve/preview/{id}` | Stream raw bytes or image preview with proper Content-Type. |
+| GET | `/api/carve/export-report` | Generate a digitally signed Chain of Custody JSON certificate. |
 | POST | `/api/unmount` | Unmount a non-system device and its direct mounted children. |
 | GET | `/api/certificates` | List signed certificates, newest first. |
 | POST | `/api/certificate` | Issue/return JSON, or PDF with `?format=pdf`. |
@@ -637,6 +644,182 @@ Terminal verified event:
 Failure events contain `status: "failed"` and `error`. Clients should use `jobId` to refresh the complete authoritative record over HTTP after a terminal event.
 
 Broadcast receivers that lag skip missed messages and continue with newer messages. The frontend reconnects after closure with exponential delays capped at ten seconds. Every successful connection reloads authoritative job records over HTTP, and terminal events reload their specific job. Session logs contain only WebSocket messages observed by that browser; they are not evidence records.
+
+## Forensic media & file carving
+
+The carver engine operates directly against raw block devices or disk images without filesystem mounts.
+
+### Start carving
+
+```http
+POST /api/carve/start
+Content-Type: application/json
+```
+
+Request:
+
+```json
+{
+  "device_path": "/dev/sdb",
+  "output_dir": "/tmp/dzap_carved",
+  "file_types": ["jpeg", "png", "mp4"],
+  "cluster_size": 4096,
+  "scan_mode": "deep_bifragment"
+}
+```
+
+Parameters:
+- `device_path` (string, required): Raw block device or image file path. Opened strictly `O_RDONLY`.
+- `output_dir` (string, required): Destination directory for carved files. Verified to not reside on the target media.
+- `file_types` (array of strings, required): Signatures to probe (`"jpeg"`, `"png"`, `"mp4"`).
+- `cluster_size` (integer, optional): Stepping alignment in bytes (default 4096).
+- `scan_mode` (string, optional): `"fast_signature"` (Scalpel linear) or `"deep_bifragment"` (Garfinkel heuristic reassembly).
+
+Response (`200 OK`):
+
+```json
+{
+  "status": "started",
+  "message": "Forensic carving task initialized",
+  "devicePath": "/dev/sdb"
+}
+```
+
+### Stop carving
+
+```http
+POST /api/carve/stop
+```
+
+Response (`200 OK`):
+
+```json
+{
+  "status": "stopped",
+  "message": "Stop signal transmitted to forensic carver"
+}
+```
+
+### Get carving status
+
+```http
+GET /api/carve/status
+```
+
+Response:
+
+```json
+{
+  "progress": {
+    "task_id": "task-carve-1726660000",
+    "device_path": "/dev/sdb",
+    "status": "scanning",
+    "scanned_bytes": 104857600,
+    "total_bytes": 10737418240,
+    "current_sector": 25600,
+    "total_sectors": 2621440,
+    "speed_mbps": 142.5,
+    "elapsed_secs": 12,
+    "artifacts_found": 8,
+    "valid_count": 7,
+    "fragmented_count": 2,
+    "bad_sectors": 0,
+    "error": null
+  }
+}
+```
+
+### List carved artifacts
+
+```http
+GET /api/carve/artifacts
+```
+
+Response:
+
+```json
+{
+  "artifacts": [
+    {
+      "id": "art-0001",
+      "filename": "carved_0001_sec1024.jpg",
+      "file_type": "JPEG Image",
+      "extension": "jpg",
+      "mime_type": "image/jpeg",
+      "start_sector": 1024,
+      "end_sector": 1040,
+      "byte_offset": 4194304,
+      "size_bytes": 65536,
+      "sha256": "3a7acb4f9e...",
+      "confidence_score": 0.95,
+      "is_fragmented": false,
+      "fragment_count": 1,
+      "gap_offset": null,
+      "metadata": {
+        "dimensions": "1920x1080",
+        "format": "JPEG/JFIF"
+      },
+      "extracted_path": "/tmp/dzap_carved/carved_files/carved_0001_sec1024.jpg",
+      "preview_data_url": "data:image/jpeg;base64,...",
+      "carved_at": "2026-09-18T12:00:00Z"
+    }
+  ]
+}
+```
+
+### Artifact preview & download
+
+```http
+GET /api/carve/preview/{id}
+```
+
+Streams the carved file payload with its native MIME type (e.g. `image/jpeg`, `image/png`, `video/mp4`).
+
+### Export Chain of Custody report
+
+```http
+GET /api/carve/export-report
+```
+
+Response conforms to NIST SP 800-86 and ISO/IEC 27037 standards with cryptographic integrity seal:
+
+```json
+{
+  "report_id": "COC-20260918-120000",
+  "title": "Forensic Media & File Carving Chain of Custody Report",
+  "case_id": "CASE-DZAP-20260918",
+  "examiner": "DZap Autonomous Forensic Carver Engine",
+  "tool_name": "DZap Forensic Suite (Rust Core)",
+  "tool_version": "2.4.0",
+  "standard_references": [
+    "Scalpel: A Frugal, High Performance File Carver (Richard & Roussev, 2005)",
+    "Carving Contiguous and Fragmented Files with Fast Object Validation (Garfinkel, 2007)",
+    "NIST SP 800-86: Guide to Integrating Forensic Techniques into Incident Response",
+    "ISO/IEC 27037: Guidelines for identification, collection, acquisition and preservation of digital evidence"
+  ],
+  "generated_at": "2026-09-18T12:00:00Z",
+  "target_device": "/dev/sdb",
+  "total_sectors_scanned": 2621440,
+  "total_bytes_scanned": 10737418240,
+  "total_artifacts_carved": 12,
+  "high_confidence_count": 10,
+  "fragmented_count": 2,
+  "bad_sectors_encountered": 0,
+  "integrity_digest_sha256": "8f42e3...",
+  "digital_signature_algorithm": "SHA-256 HMAC / Forensic Verification Hash",
+  "digital_signature_seal": "d9812a...",
+  "artifacts": []
+}
+```
+
+### Carving WebSocket events
+
+Sent over the `/ws` channel:
+
+- `carve_started`: Emitted when the carver process initializes.
+- `carve_progress`: Emitted periodically (every 250ms) with current LBA, throughput speed, and counts.
+- `carve_artifact_found`: Emitted immediately when a verified file signature is carved and written.
+- `carve_completed`: Emitted upon reaching end-of-device or user cancellation.
 
 ## Browser-origin policy
 

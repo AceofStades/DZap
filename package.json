@@ -2,9 +2,12 @@
 	"name": "dzap",
 	"version": "1.0.0",
 	"private": true,
+	"main": "electron-main.js",
 	"scripts": {
 		"dev": "cd frontend && npm run dev",
 		"start:frontend": "cd frontend && npm run dev",
+		"electron": "npx -y electron . --no-sandbox",
+		"app": "google-chrome --app=http://localhost:3000",
 		"build": "cd frontend && npm run build",
 		"build:frontend": "cd frontend && npm run build"
 	}

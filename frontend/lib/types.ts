@@ -384,3 +384,90 @@ export interface EvidenceExportResult {
 	alreadyExisted: boolean;
 	destination: ExportDestination;
 }
+
+// --- Forensic Media & File Carving Types ---
+export type CarveStatus = "idle" | "scanning" | "paused" | "completed" | "stopped" | "failed";
+
+export interface CarveTarget {
+	device_path: string;
+	output_dir: string;
+	file_types: string[];
+	cluster_size?: number;
+	scan_mode?: "fast_signature" | "deep_bifragment";
+	max_file_size?: number;
+}
+
+export interface CarvedArtifact {
+	id: string;
+	filename: string;
+	file_type: string;
+	extension: string;
+	mime_type: string;
+	start_sector: number;
+	end_sector: number;
+	byte_offset: number;
+	size_bytes: number;
+	sha256: string;
+	confidence_score: number;
+	is_fragmented: boolean;
+	fragment_count: number;
+	gap_offset?: number | null;
+	metadata: Record<string, string>;
+	extracted_path: string;
+	preview_data_url?: string | null;
+	carved_at: string;
+}
+
+export interface CarveProgress {
+	task_id: string;
+	device_path: string;
+	status: CarveStatus;
+	scanned_bytes: number;
+	total_bytes: number;
+	current_sector: number;
+	total_sectors: number;
+	speed_mbps: number;
+	elapsed_secs: number;
+	artifacts_found: number;
+	valid_count: number;
+	fragmented_count: number;
+	bad_sectors: number;
+	error?: string | null;
+}
+
+export interface ReportArtifactEntry {
+	id: string;
+	filename: string;
+	file_type: string;
+	byte_offset: number;
+	start_sector: number;
+	end_sector: number;
+	size_bytes: number;
+	sha256: string;
+	confidence_score: number;
+	is_fragmented: boolean;
+	metadata_summary: string;
+}
+
+export interface ChainOfCustodyReport {
+	report_id: string;
+	title: string;
+	case_id: string;
+	examiner: string;
+	tool_name: string;
+	tool_version: string;
+	standard_references: string[];
+	generated_at: string;
+	target_device: string;
+	total_sectors_scanned: number;
+	total_bytes_scanned: number;
+	total_artifacts_carved: number;
+	high_confidence_count: number;
+	fragmented_count: number;
+	bad_sectors_encountered: number;
+	integrity_digest_sha256: string;
+	digital_signature_algorithm: string;
+	digital_signature_seal: string;
+	artifacts: ReportArtifactEntry[];
+}
+

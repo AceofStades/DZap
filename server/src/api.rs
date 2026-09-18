@@ -1359,6 +1359,92 @@ pub async fn certificate_handler(
     }
 }
 
+// --- Forensic Media & File Carving Handlers ---
+
+pub async fn start_carve_handler(
+    State(state): State<AppState>,
+    Json(target): Json<crate::core::carver::CarveTarget>,
+) -> Response {
+    let dev_path = target.device_path.clone();
+    let carver_store = state.carver.clone();
+    let hub = state.hub.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = crate::core::carver::engine::run_carving_engine(target, carver_store, hub).await {
+            eprintln!("Forensic Carving Engine encountered error: {e}");
+        }
+    });
+
+    Json(json!({
+        "status": "started",
+        "message": "Forensic carving task initialized",
+        "devicePath": dev_path,
+    }))
+    .into_response()
+}
+
+pub async fn stop_carve_handler(State(state): State<AppState>) -> Response {
+    state.carver.stop_task();
+    Json(json!({
+        "status": "stopped",
+        "message": "Stop signal transmitted to forensic carver"
+    }))
+    .into_response()
+}
+
+pub async fn get_carve_status_handler(State(state): State<AppState>) -> Response {
+    let progress = state.carver.get_progress();
+    Json(json!({ "progress": progress })).into_response()
+}
+
+pub async fn list_carve_artifacts_handler(State(state): State<AppState>) -> Response {
+    let artifacts = state.carver.get_artifacts();
+    Json(json!({ "artifacts": artifacts })).into_response()
+}
+
+pub async fn get_carve_artifact_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    match state.carver.get_artifact_by_id(&id) {
+        Some(artifact) => Json(artifact).into_response(),
+        None => error_response(StatusCode::NOT_FOUND, "Carved artifact not found"),
+    }
+}
+
+pub async fn get_carve_preview_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
+    let artifact = match state.carver.get_artifact_by_id(&id) {
+        Some(a) => a,
+        None => return error_response(StatusCode::NOT_FOUND, "Artifact not found"),
+    };
+
+    match std::fs::read(&artifact.extracted_path) {
+        Ok(bytes) => (
+            [(axum::http::header::CONTENT_TYPE, artifact.mime_type)],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => error_response(StatusCode::NOT_FOUND, "Carved file could not be read on disk"),
+    }
+}
+
+pub async fn export_carve_report_handler(State(state): State<AppState>) -> Response {
+    let artifacts = state.carver.get_artifacts();
+    let progress = state.carver.get_progress();
+    let device_path = progress.as_ref().map(|p| p.device_path.as_str()).unwrap_or("Unknown Target");
+
+    let report = crate::core::carver::report::generate_chain_of_custody_report(
+        device_path,
+        progress.as_ref(),
+        &artifacts,
+    );
+
+    Json(report).into_response()
+}
+
 pub async fn ws_handler(
     headers: HeaderMap,
     ws: WebSocketUpgrade,

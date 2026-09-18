@@ -148,6 +148,58 @@ After a backend restart:
 
 WebSocket events provide live display updates. The persisted job returned by `GET /api/recovery/jobs/{id}` remains authoritative.
 
+## Forensic Media & File Carving Engine (Scalpel & Garfinkel Heuristics)
+
+In addition to image-based container extraction, DZap features an integrated, high-throughput **Forensic Media & File Carving Engine** written in Rust (`server/src/core/carver/`). It operates directly on raw block devices (SATA, NVMe, USB) or raw disk images without requiring filesystem mountability or partition table integrity.
+
+### Academic & Forensic Foundations
+
+The carving engine is architected around two peer-reviewed digital forensics standards:
+
+1. **Linear Contiguous Carving (Scalpel)**:
+   - *Reference*: Golden G. Richard III & Vassil Roussev (2005) - *Scalpel: A Frugal, High Performance File Carver*.
+   - Employs pre-compiled file header and footer signature tables.
+   - Operates a forward/backward sliding window over cluster-aligned block boundaries (default 4096 bytes, configurable to 512B, 1KB, 2KB, 4KB, or 8KB).
+   - Enforces maximum carve boundaries to prevent runaway memory allocation.
+
+2. **Bi-Fragment Gap Analysis**:
+   - *Reference*: Simson Garfinkel (2007) - *Carving Contiguous and Fragmented Files with Fast Object Validation*.
+   - Uses deep internal structural parsing (segment length validation, atom trees, CRC32 chunk checks) rather than naive header/footer delimiter matching.
+   - Detects discontinuities and entropy shifts within data streams (such as unallocated zero clusters or corrupt sectors) to reconstruct fragmented files across non-contiguous cluster allocations.
+
+### Deep Structural File Parsers
+
+The carving engine incorporates dedicated Rust parsers for high-priority evidence formats:
+
+| Format | Header Magic | Structural Validation & Markers | Footer / Termination | Confidence Scoring Model |
+| --- | --- | --- | --- | --- |
+| **JPEG / JFIF** | `0xFF, 0xD8, 0xFF` | Validates APP0 (JFIF) / APP1 (EXIF), extracts dimensions from SOF0/SOF2 baseline/progressive frames, tracks DQT and DHT tables, scans SOS entropy stream. | `0xFF, 0xD9` (EOI). Avoids prematurely halting at embedded thumbnail EOIs inside EXIF metadata. | +40% SOI & cluster alignment, +30% clean EOI footer, +20% standard markers (DQT, DHT, SOF, SOS), +10% valid EXIF/JFIF metadata. Penalized on fragmentation. |
+| **PNG** | `0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A` | Chunk-by-chunk traversal (`Length`, `Type`, `Data`, `CRC`). Validates `IHDR` and extracts width, height, bit-depth, and color type. | `IEND` chunk with valid CRC32. | +40% magic header & cluster alignment, +20% valid IHDR & plausible dimensions, +20% valid IDAT CRC32 checks, +20% valid terminating IEND chunk. |
+| **MP4 / ISO Base Media** | `....ftyp` (box type at offset 4) | Traverses ISO Base Media box hierarchy (`ftyp`, `moov`, `mdat`). Validates major brands (`isom`, `mp41`, `mp42`, `qt  `, `M4V `). Parses `mvhd` atom to calculate duration and timescale. Supports 64-bit extended box lengths. | Verified `moov` + `mdat` box boundary or unallocated cluster. | +40% valid `ftyp` & cluster alignment, +25% valid `moov` container, +25% valid `mdat` payload, +10% clean box length hierarchy. |
+
+### Write-Blocking & Forensic Safety
+
+- **Read-Only Enforced (`O_RDONLY`)**: All file descriptors and block device handles opened by the carving engine use kernel-level read-only access.
+- **Destination Isolation**: The engine verifies that the output extraction directory does not reside on the target evidence drive or within `/dev/`.
+- **Bad Sector Tolerance**: When unreadable or degraded sectors (I/O errors) are encountered during raw streaming, the engine logs the sector offset, increments the bad sector tally, applies a confidence penalty, and advances to the next cluster boundary without crashing.
+- **Incremental SHA-256 Hashing**: Every carved file has its cryptographic SHA-256 digest computed incrementally during extraction.
+
+### Chain of Custody & Reporting (NIST SP 800-86 / ISO/IEC 27037)
+
+The engine generates an authoritative, tamper-evident **Chain of Custody Certificate** (`GET /api/carve/export-report`):
+- Records Case ID, Examiner metadata, target device identity, total sectors scanned, and timestamps.
+- Itemizes every carved artifact with sector ranges, byte offsets, file types, and SHA-256 hashes.
+- Computes a cryptographic SHA-256 report integrity digest and digital verification seal across all ledger entries.
+- Exportable as structured JSON or printable legal certificates.
+
+### Forensic Investigation Workspace (UI)
+
+Integrated into the Next.js frontend (`frontend/components/forensics/`):
+- **Carver Config Panel**: Physical drive selector with read-only badge, scan strategy toggle (*Linear Contiguous* vs *Deep Bifragment Reassembly*), cluster size selector, format chips, and extraction path validation.
+- **Real-Time Progress Tracker**: Animated sector/LBA progress bar, 5-column live metrics grid (current LBA, speed in MB/s, artifacts found, bad sectors, elapsed time), and stop/finalize controls.
+- **Evidence Locker & Gallery**: Visual card grid and forensic table view, image/video thumbnail previews, confidence color badges (green $\ge 90\%$, amber $50\text{--}89\%$, rose $<50\%$), 1-click SHA-256 copy, and a modal detail inspector with structural metadata and hex viewer.
+- **Dark & Light Mode**: Seamless theme switching with high-contrast typography and full responsiveness across 13"–15" laptop screens.
+
 ## Capacity and interpretation limits
 
 Image planning reserves space for the image, not a second full copy of every file. Filesystem copy measures readable regular files before writing. PhotoRec cannot know its final yield, so DZap requires free space equal to the selected volume plus 64 MiB before starting.
