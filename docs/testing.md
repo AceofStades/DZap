@@ -117,7 +117,7 @@ This test proves that the actual Rust recovery, overwrite, API orchestration, ve
 Build and boot-test the product image:
 
 ```bash
-make iso
+make build-iso
 make smoke-iso
 ```
 
@@ -169,7 +169,7 @@ make check-live
 
 Run the destructive QEMU test when changing preflight, wipe execution, verification, job evidence, or certificate generation.
 
-Run `make iso && make smoke-iso` when changing dependencies, the static-serving boundary, ArchISO files, service startup, kiosk startup, or boot-media detection.
+Run `make build-iso && make smoke-iso` when changing dependencies, the static-serving boundary, ArchISO files, service startup, kiosk startup, or boot-media detection.
 
 ## What is proven today
 

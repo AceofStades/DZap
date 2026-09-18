@@ -39,7 +39,7 @@ The signed build additionally uses OpenSSL to create/check the owner key and `sb
 ## Build command
 
 ```bash
-make iso
+make build-iso
 ```
 
 This calls `scripts/build-live-iso.sh`. Useful overrides are:
@@ -75,7 +75,7 @@ make secure-iso
 make verify-secure-iso
 ```
 
-The signed ISO and a public `dzap-secure-boot.cer` enrollment companion are written to `out/secure/`; the ordinary `make iso` output remains in `out/`. `make secure-iso` also runs the verifier automatically and fails the build if signatures, UKI sections, certificate publication, or the signed-only loader entry are wrong. To verify an explicitly selected image whose companion certificate is in the same directory:
+The signed ISO and a public `dzap-secure-boot.cer` enrollment companion are written to `out/secure/`; the ordinary `make build-iso` output remains in `out/`. `make secure-iso` also runs the verifier automatically and fails the build if signatures, UKI sections, certificate publication, or the signed-only loader entry are wrong. To verify an explicitly selected image whose companion certificate is in the same directory:
 
 ```bash
 make verify-secure-iso ISO=/path/to/dzap.iso

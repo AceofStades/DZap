@@ -1,10 +1,12 @@
-.PHONY: iso secure-boot-key secure-iso verify-secure-iso run-iso run-tui smoke-iso check-live
+.PHONY: build-iso iso secure-boot-key secure-iso verify-secure-iso run-iso run-tui smoke-iso check-live
 
 SECURE_BOOT_DIR ?= $(CURDIR)/build/secure-boot
 SECURE_ISO_OUT_DIR ?= $(CURDIR)/out/secure
 
-iso:
+build-iso:
 	./scripts/build-live-iso.sh
+
+iso: build-iso
 
 $(SECURE_BOOT_DIR)/db.key:
 	./scripts/generate-secure-boot-key.sh "$(SECURE_BOOT_DIR)"
@@ -21,7 +23,7 @@ verify-secure-iso:
 	./scripts/verify-secure-iso.py $(if $(ISO),"$(ISO)",) \
 		--certificate "$(SECURE_BOOT_DIR)/db.pem"
 
-run-iso: iso
+run-iso:
 	./scripts/run-live-iso.sh
 
 run-tui:

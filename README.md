@@ -26,7 +26,7 @@ rustup target add x86_64-unknown-linux-musl
 Build the hybrid BIOS/UEFI ISO:
 
 ```bash
-make iso
+make build-iso
 ```
 
 The resulting `dzap-*.iso` is written to `out/`. The builder copies ArchISO's installed `releng` profile, replaces its installer entries with immediate DZap boot entries, adds the DZap packages and startup files, exports the frontend, and builds static Rust binaries.
@@ -41,13 +41,14 @@ make verify-secure-iso
 
 The signed image and its public `dzap-secure-boot.cer` enrollment companion are written to `out/secure/`. Enroll only that certificate in the target firmware's Secure Boot signature database (`db`); keep `db.key` private and never copy it to the USB. The firmware will reject this image until its owner key is enrolled because the project does not use a factory Microsoft-trusted key. See the [Secure Boot runbook](docs/live-usb.md#owner-key-secure-boot) for enrollment, verification, and current integrity limits.
 
-Build and launch the current source with a dedicated virtual disk:
+Build the current source, then launch it with a dedicated virtual disk:
 
 ```bash
+make build-iso
 make run-iso
 ```
 
-`make run-iso` rebuilds the image first, so frontend and backend changes are included before QEMU starts. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk. To launch an existing image without rebuilding it, run `./scripts/run-live-iso.sh` directly.
+`make run-iso` launches the newest image in `out/` without rebuilding it. The interactive QEMU launcher creates `build/archiso/test-disk.qcow2`; DZap may safely erase that virtual test disk.
 
 After building, `make smoke-iso` boots the live filesystem and checks its backend, frontend, kiosk account, and boot-device protection.
 
