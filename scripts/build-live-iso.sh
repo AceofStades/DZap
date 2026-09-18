@@ -27,7 +27,19 @@ require_command() {
     fi
 }
 
-for command in cargo mkarchiso npm rustup; do
+remove_build_tree() {
+    local path=$1
+
+    if [[ -e $path ]]; then
+        if (( EUID == 0 )); then
+            rm -rf -- "$path"
+        else
+            unshare --map-auto --map-root-user -- rm -rf -- "$path"
+        fi
+    fi
+}
+
+for command in cargo mkarchiso npm rustup unshare; do
     require_command "$command"
 done
 
@@ -91,7 +103,8 @@ cargo build \
     --manifest-path "$REPO_ROOT/server/Cargo.toml"
 
 echo "==> Preparing ArchISO profile"
-rm -rf "$PROFILE_DIR" "$WORK_DIR"
+remove_build_tree "$PROFILE_DIR"
+remove_build_tree "$WORK_DIR"
 mkdir -p "$PROFILE_DIR" "$OUTPUT_DIR"
 cp -a "$BASE_PROFILE/." "$PROFILE_DIR/"
 cp -a "$REPO_ROOT/iso/airootfs/." "$PROFILE_DIR/airootfs/"
