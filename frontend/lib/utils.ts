@@ -19,6 +19,10 @@ import type {
 	WipePlan,
 	WipeRequest,
 	WipeMethod,
+	CarveTarget,
+	CarveProgress,
+	CarvedArtifact,
+	ChainOfCustodyReport,
 } from "@/lib/types";
 
 export function cn(...inputs: ClassValue[]) {
@@ -489,3 +493,64 @@ export async function exportEvidence(
 	}
 	return response.json();
 }
+
+// --- Forensic Media & File Carving Client APIs ---
+
+export async function startCarve(target: CarveTarget): Promise<{ status: string; message: string; devicePath: string }> {
+	const response = await fetch(apiUrl("/carve/start"), {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(target),
+	});
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to start forensic carving task.");
+	}
+	return response.json();
+}
+
+export async function stopCarve(): Promise<{ status: string; message: string }> {
+	const response = await fetch(apiUrl("/carve/stop"), {
+		method: "POST",
+	});
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to stop carving task.");
+	}
+	return response.json();
+}
+
+export async function getCarveStatus(): Promise<{ progress: CarveProgress | null }> {
+	const response = await fetch(apiUrl("/carve/status"));
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to fetch carving status.");
+	}
+	return response.json();
+}
+
+export async function getCarveArtifacts(): Promise<{ artifacts: CarvedArtifact[] }> {
+	const response = await fetch(apiUrl("/carve/artifacts"));
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to fetch carved artifacts.");
+	}
+	return response.json();
+}
+
+export async function getCarveArtifact(id: string): Promise<CarvedArtifact> {
+	const response = await fetch(apiUrl(`/carve/artifacts/${id}`));
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to fetch artifact details.");
+	}
+	return response.json();
+}
+
+export function getCarvePreviewUrl(id: string): string {
+	return apiUrl(`/carve/preview/${id}`);
+}
+
+export async function exportCarveReport(): Promise<ChainOfCustodyReport> {
+	const response = await fetch(apiUrl("/carve/export-report"));
+	if (!response.ok) {
+		throw await apiResponseError(response, "Failed to generate Chain of Custody report.");
+	}
+	return response.json();
+}
+
