@@ -300,11 +300,12 @@ fn determine_device_size(file: &mut File, _path: &str) -> u64 {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::io::AsRawFd;
+        const BLKGETSIZE64: libc::Ioctl = libc::_IOR::<libc::size_t>(0x12, 114);
+
         let fd = file.as_raw_fd();
         let mut size: u64 = 0;
-        // 0x80081272 is BLKGETSIZE64
         unsafe {
-            if libc::ioctl(fd, 0x80081272, &mut size) == 0 && size > 0 {
+            if libc::ioctl(fd, BLKGETSIZE64, &mut size) == 0 && size > 0 {
                 return size;
             }
         }
