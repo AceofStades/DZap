@@ -54,6 +54,22 @@ for the dashboard.
 
 ## Walkthrough once you're in the dashboard
 
+Recommended order: recover first, wipe second -- it reads as one story
+("recover what matters, then responsibly destroy what you're done
+with") rather than two disconnected demos.
+
+**Recovery (RECOVERY-SOURCE -> RECOVERY-DEST):**
+1. Select the `RECOVERY-SOURCE` drive (serial `DZAPSRC1`) and run the
+   read-only assessment.
+2. Pick the `RECOVERY-DEST` drive (serial `DZAPDEST1`) as the
+   destination and start the ddrescue image.
+3. Once imaged, run PhotoRec against the image -- it carves `photo.png`
+   back out by its file signature even though the filesystem metadata
+   that pointed at it is long gone.
+4. Open the recovered file and compare its SHA-256 against
+   `/root/dzap-demo-original-hashes.txt` (printed during seeding) to
+   prove it's byte-for-byte the same file.
+
 **Wipe (WIPE-TARGET):**
 1. Select the `WIPE-TARGET` drive (serial `DZAPWIPE1`).
 2. Run preflight, confirm the identity-bound checks pass, and authorize
@@ -73,18 +89,6 @@ for the dashboard.
    hexdump of the file won't look like a clean zero-fill even when the
    wipe worked, and QEMU holds the file locked while the VM is running
    anyway.
-
-**Recovery (RECOVERY-SOURCE -> RECOVERY-DEST):**
-1. Select the `RECOVERY-SOURCE` drive (serial `DZAPSRC1`) and run the
-   read-only assessment.
-2. Pick the `RECOVERY-DEST` drive (serial `DZAPDEST1`) as the
-   destination and start the ddrescue image.
-3. Once imaged, run PhotoRec against the image -- it carves `photo.png`
-   back out by its file signature even though the filesystem metadata
-   that pointed at it is long gone.
-4. Open the recovered file and compare its SHA-256 against
-   `/root/dzap-demo-original-hashes.txt` (printed during seeding) to
-   prove it's byte-for-byte the same file.
 
 ## Redoing a take
 
