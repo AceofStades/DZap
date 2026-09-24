@@ -1,4 +1,4 @@
-.PHONY: build-iso iso secure-boot-key secure-iso verify-secure-iso run-iso run-tui smoke-iso check-live
+.PHONY: build-iso iso secure-boot-key secure-iso verify-secure-iso run-iso run-tui smoke-iso check-live demo-drives demo
 
 SECURE_BOOT_DIR ?= $(CURDIR)/build/secure-boot
 SECURE_ISO_OUT_DIR ?= $(CURDIR)/out/secure
@@ -31,6 +31,12 @@ run-tui:
 
 smoke-iso:
 	./scripts/smoke-live-iso.py
+
+demo-drives:
+	./scripts/demo/prepare-demo-drives.sh
+
+demo:
+	./scripts/demo/run-demo.sh
 
 check-live:
 	bash -n scripts/build-live-iso.sh scripts/generate-secure-boot-key.sh scripts/run-live-iso.sh iso/secure-boot/make-uki.sh

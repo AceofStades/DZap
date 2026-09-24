@@ -152,7 +152,10 @@ pub fn mount_recovery_destination(
     ensure_separate_drives(source, destination_drive)?;
 
     let _source_reservation = reserve_device(&source.name)?;
-    let _destination_reservation = reserve_device(&destination_drive.name)?;
+    // Do not also reserve the destination here: `mount_export_destination`
+    // itself checks `device_is_reserved` on the destination as a guard
+    // against a concurrent operation elsewhere, and a reservation held by
+    // this function would make that check see itself as "already reserved".
     let mounted =
         evidence_export::mount_export_destination(&request.destination.as_export_destination())?;
     destination_from_export(&mounted, destination_drive, filesystem_capacity)
