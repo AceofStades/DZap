@@ -10,6 +10,15 @@ DEMO_DIR="$REPO_ROOT/build/demo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ISO_FILE=${1:-}
 HTTP_PORT=${DZAP_DEMO_HTTP_PORT:-8123}
+# Plain -vga std lets the guest's VESA driver pick its own default (often a
+# small, oddly-shaped mode like 1280x800), which then gets stretched to fit
+# whatever size the QEMU window is -- that's the source of the blurry,
+# scroll-needed dashboard. xres/yres on the VGA device pins the boot
+# resolution directly, so the window opens crisp and correctly sized. This
+# QEMU build has no virtio-gpu/qxl (checked via `-vga help`), so std VGA
+# with an explicit mode is the reliable option.
+DEMO_WIDTH=${DZAP_DEMO_WIDTH:-2880}
+DEMO_HEIGHT=${DZAP_DEMO_HEIGHT:-1800}
 
 if [[ -z $ISO_FILE ]]; then
     ISO_FILE=$(find "$REPO_ROOT/out" -maxdepth 1 -type f -name 'dzap-*.iso' -print 2>/dev/null | sort | tail -n 1)
@@ -38,6 +47,9 @@ trap 'kill "$HTTP_PID" 2>/dev/null || true' EXIT
 cat <<EOF
 ==================================================================
  DZap demo VM -- using $ISO_FILE
+ Guest display: ${DEMO_WIDTH}x${DEMO_HEIGHT} (override with
+ DZAP_DEMO_WIDTH / DZAP_DEMO_HEIGHT env vars if your screen differs).
+
  Three throwaway virtual disks; nothing on this host is touched:
 
    /dev/vda  WIPE-TARGET        secure-erase demo (starts blank)
@@ -81,4 +93,5 @@ qemu-system-x86_64 \
     -device qemu-xhci,id=usb0 \
     -drive if=none,id=dst0,format=qcow2,file="$DEMO_DIR/recovery-destination.qcow2" \
     -device usb-storage,bus=usb0.0,drive=dst0,serial=DZAPDEST1,removable=on \
-    -vga std
+    -vga none \
+    -device VGA,vgamem_mb=64,xres=$DEMO_WIDTH,yres=$DEMO_HEIGHT
