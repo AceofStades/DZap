@@ -17,8 +17,8 @@ HTTP_PORT=${DZAP_DEMO_HTTP_PORT:-8123}
 # resolution directly, so the window opens crisp and correctly sized. This
 # QEMU build has no virtio-gpu/qxl (checked via `-vga help`), so std VGA
 # with an explicit mode is the reliable option.
-DEMO_WIDTH=${DZAP_DEMO_WIDTH:-2880}
-DEMO_HEIGHT=${DZAP_DEMO_HEIGHT:-1800}
+DEMO_WIDTH=${DZAP_DEMO_WIDTH:-1920}
+DEMO_HEIGHT=${DZAP_DEMO_HEIGHT:-1200}
 
 if [[ -z $ISO_FILE ]]; then
     ISO_FILE=$(find "$REPO_ROOT/out" -maxdepth 1 -type f -name 'dzap-*.iso' -print 2>/dev/null | sort | tail -n 1)
